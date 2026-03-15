@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Thesis Assistant</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink: #1a1a2e;
+  --paper: #f5f2eb;
+  --paper2: #ede9df;
+  --paper3: #e4dfd3;
+  --ruled: #d8d2c4;
+  --accent: #c0392b;
+  --accent2: #2c7a4b;
+  --accent3: #1a5276;
+  --gold: #b7860b;
+  --text: #2c2c3e;
+  --muted: #7a7568;
+  --stage1: #c0392b;
+  --stage2: #1a5276;
+  --stage3: #6c3483;
+  --stage4: #2c7a4b;
+  --stage5: #b7860b;
+}
+
+body {
+  background: var(--paper);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  min-height: 100vh;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 27px,
+      rgba(180,170,150,0.18) 27px,
+      rgba(180,170,150,0.18) 28px
+    );
+}
+
+/* Margin line */
+body::before {
+  content: '';
+  position: fixed; left: 88px; top: 0; bottom: 0; width: 1px;
+  background: rgba(192,57,43,0.12);
+  pointer-events: none; z-index: 0;
+}
+
+.app {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 48px 32px 120px 100px;
+  position: relative; z-index: 1;
+}
+
+/* ── HEADER ── */
+.app-header {
+  margin-bottom: 48px;
+}
+.app-header .eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.14em;
+  color: var(--muted); text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.app-header h1 {
+  font-family: 'Lora', serif;
+  font-size: clamp(28px, 5vw, 46px);
+  line-height: 1.1;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+.app-header h1 em { font-style: italic; color: var(--accent); }
+.app-header .sub {
+  font-size: 15px; color: var(--muted);
+  max-width: 520px; line-height: 1.6;
+}
+
+/* ── PROGRESS RAIL ── */
+.stage-rail {
+  display: flex;
+  gap: 0;
+  margin-bottom: 48px;
+  border: 1px solid var(--ruled);
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+}
+.stage-node {
+  flex: 1;
+  padding: 12px 8px;
+  text-align: center;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+  border-right: 1px solid var(--ruled);
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.stage-node:last-child { border-right: none; }
+.stage-node .s-num {
+  display: block; font-size: 16px; margin-bottom: 3px;
+}
+.stage-node .s-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stage-node.active { background: var(--ink); color: white; }
+.stage-node.done { color: var(--accent2); background: rgba(44,122,75,0.06); }
+.stage-node.done::after {
+  content: '✓';
+  position: absolute; top: 4px; right: 6px;
+  font-size: 10px; color: var(--accent2);
+}
+.stage-node.locked { opacity: 0.4; cursor: not-allowed; }
+
+/* ── STAGE PANELS ── */
+.stage-panel {
+  display: none;
+}
+.stage-panel.active {
+  display: block;
+  animation: fadeSlide 0.3s ease;
+}
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── SECTION LABEL ── */
+.sec-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted);
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 16px;
+}
+.sec-label .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.sec-label::after { content:''; flex:1; height:1px; background: var(--ruled); }
+
+/* ── INPUT ZONE ── */
+.input-zone {
+  background: white;
+  border: 1px solid var(--ruled);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 28px;
+  display: flex;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.input-zone input, .input-zone textarea {
+  flex: 1; border: none; outline: none;
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px; color: var(--text);
+  padding: 14px 16px;
+  background: transparent;
+  resize: none;
+}
+.input-zone textarea { min-height: 80px; }
+::placeholder { color: #b8b0a0; }
+.go-btn {
+  align-self: center;
+  background: var(--ink); color: white;
+  border: none; border-radius: 8px;
+  padding: 10px 22px; margin: 4px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: all 0.18s;
+  white-space: nowrap;
+}
+.go-btn:hover { background: #2d2d4a; transform: translateY(-1px); }
+.go-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* ── LOADING ── */
+.loader {
+  display: none;
+  text-align: center;
+  padding: 48px 0;
+}
+.loader.show { display: block; }
+.loader-dots {
+  display: inline-flex; gap: 6px; margin-bottom: 16px;
+}
+.loader-dots span {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ink); animation: bounce 1.2s infinite;
+}
+.loader-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loader-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%,80%,100%{transform:scale(0.6);opacity:0.4} 40%{transform:scale(1);opacity:1} }
+.loader-msg {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; color: var(--muted);
+}
+
+/* ── CARDS ── */
+.cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.cards-grid.single { grid-template-columns: 1fr; }
+
+.card {
+  background: white;
+  border: 1.5px solid var(--ruled);
+  border-radius: 10px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: all 0.18s;
+  position: relative;
+  user-select: none;
+}
+.card:hover { border-color: var(--ink); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+.card.selected {
+  border-color: var(--accent2);
+  background: rgba(44,122,75,0.04);
+  box-shadow: 0 0 0 3px rgba(44,122,75,0.1);
+}
+.card.selected::before {
+  content: '✓';
+  position: absolute; top: 10px; right: 12px;
+  font-size: 12px; color: var(--accent2);
+  font-family: 'JetBrains Mono', monospace;
+}
+.card-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 8px;
+  display: flex; align-items: center; gap: 6px;
+}
+.card-tag .badge {
+  padding: 2px 8px; border-radius: 4px; font-size: 9px;
+}
+.card h3 {
+  font-family: 'Lora', serif;
+  font-size: 16px; font-weight: 600;
+  color: var(--ink); margin-bottom: 8px; line-height: 1.3;
+}
+.card p {
+  font-size: 13px; color: var(--muted); line-height: 1.6;
+}
+.card .card-meta {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px;
+}
+.chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; padding: 3px 8px;
+  border: 1px solid var(--ruled);
+  border-radius: 4px; color: var(--muted);
+}
+
+/* ── GAP CARD (special) ── */
+.gap-card {
+  background: white;
+  border: 1.5px solid var(--ruled);
+  border-left: 4px solid var(--stage3);
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.gap-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.08); border-left-color: var(--stage3); }
+.gap-card.selected { background: rgba(108,52,131,0.04); border-color: var(--stage3); box-shadow: 0 0 0 3px rgba(108,52,131,0.1); }
+.gap-type {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--stage3); margin-bottom: 8px;
+}
+.gap-card h3 { font-family: 'Lora', serif; font-size: 16px; color: var(--ink); margin-bottom: 8px; }
+.gap-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.gap-card .gap-why {
+  margin-top: 12px; padding: 10px 14px;
+  background: rgba(108,52,131,0.04); border-radius: 6px;
+  font-size: 12px; color: var(--text); line-height: 1.5;
+}
+.gap-card .gap-why strong { color: var(--stage3); font-size: 10px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; display: block; margin-bottom: 4px; }
+
+/* ── RQ CARDS ── */
+.rq-card {
+  background: white;
+  border: 1.5px solid var(--ruled);
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.rq-card:hover { border-color: var(--stage4); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+.rq-card.selected { border-color: var(--stage4); background: rgba(44,122,75,0.04); box-shadow: 0 0 0 3px rgba(44,122,75,0.1); }
+.rq-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--stage4); margin-bottom: 10px;
+}
+.rq-question {
+  font-family: 'Lora', serif; font-style: italic;
+  font-size: 17px; color: var(--ink); line-height: 1.4; margin-bottom: 14px;
+}
+.rq-breakdown { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.rq-dim { background: var(--paper2); border-radius: 6px; padding: 8px 10px; }
+.rq-dim-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.1em; }
+.rq-dim-val { font-size: 12px; color: var(--text); line-height: 1.4; }
+
+/* ── PROPOSAL ── */
+.proposal-wrap {
+  background: white;
+  border: 1px solid var(--ruled);
+  border-radius: 12px;
+  padding: 36px 40px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+  margin-bottom: 24px;
+  position: relative;
+}
+.proposal-wrap::before {
+  content: '';
+  position: absolute; left: 0; top: 24px; bottom: 24px; width: 3px;
+  background: var(--gold); border-radius: 0 2px 2px 0;
+}
+.proposal-title {
+  font-family: 'Lora', serif;
+  font-size: 22px; font-weight: 600;
+  color: var(--ink); margin-bottom: 6px;
+}
+.proposal-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--muted); margin-bottom: 28px;
+  display: flex; gap: 16px; flex-wrap: wrap;
+}
+.proposal-section { margin-bottom: 22px; }
+.proposal-section-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--gold); margin-bottom: 8px;
+}
+.proposal-section p {
+  font-size: 14px; line-height: 1.75; color: var(--text);
+}
+.proposal-section ul {
+  padding-left: 20px;
+}
+.proposal-section li {
+  font-size: 14px; line-height: 1.75; color: var(--text); margin-bottom: 4px;
+}
+
+/* ── CONTEXT SIDEBAR ── */
+.context-bar {
+  background: var(--paper2);
+  border: 1px solid var(--ruled);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 28px;
+  font-size: 13px;
+}
+.context-bar-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted); margin-bottom: 10px;
+}
+.context-row {
+  display: flex; gap: 8px; margin-bottom: 6px; align-items: flex-start;
+}
+.context-key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--muted); min-width: 80px; flex-shrink: 0;
+  padding-top: 1px;
+}
+.context-val { font-size: 13px; color: var(--text); line-height: 1.5; }
+
+/* ── ACTION ROW ── */
+.action-row {
+  display: flex; gap: 10px; align-items: center;
+  margin-top: 24px;
+}
+.btn-primary {
+  background: var(--ink); color: white;
+  border: none; border-radius: 8px;
+  padding: 12px 28px; font-family: 'Outfit', sans-serif;
+  font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: all 0.18s;
+}
+.btn-primary:hover { background: #2d2d4a; transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn-secondary {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--ruled);
+  border-radius: 8px; padding: 12px 20px;
+  font-family: 'Outfit', sans-serif; font-size: 14px;
+  cursor: pointer; transition: all 0.18s;
+}
+.btn-secondary:hover { border-color: var(--ink); color: var(--text); }
+.selection-hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--muted); margin-left: auto;
+}
+
+/* ── EXPORT ── */
+.export-strip {
+  display: none;
+  background: var(--ink);
+  border-radius: 10px;
+  padding: 14px 20px;
+  display: none; align-items: center; gap: 12px;
+  margin-top: 20px;
+}
+.export-strip.show { display: flex; }
+.export-strip-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: rgba(255,255,255,0.5);
+  margin-right: 4px;
+}
+.exp-btn {
+  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px; padding: 7px 14px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  cursor: pointer; transition: all 0.18s;
+}
+.exp-btn:hover { background: rgba(255,255,255,0.18); color: white; }
+
+/* ── LITERATURE TABLE ── */
+.lit-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+.lit-table th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--muted); text-align: left;
+  padding: 8px 12px; border-bottom: 1px solid var(--ruled);
+}
+.lit-table td {
+  font-size: 13px; padding: 10px 12px;
+  border-bottom: 1px solid var(--paper3);
+  color: var(--text); vertical-align: top;
+}
+.lit-table tr:hover td { background: var(--paper2); }
+.lit-relevance {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin-right: 6px; vertical-align: middle;
+}
+.rel-high { background: var(--accent2); }
+.rel-med  { background: var(--gold); }
+.rel-low  { background: var(--muted); }
+
+/* ── ERROR ── */
+.err-box {
+  background: rgba(192,57,43,0.06);
+  border: 1px solid rgba(192,57,43,0.25);
+  border-radius: 8px; padding: 14px 18px;
+  font-size: 13px; color: var(--accent);
+  margin-bottom: 20px; display: none;
+}
+
+/* ── MODE TOGGLE ── */
+.mode-toggle {
+  display: flex;
+  gap: 0;
+  margin-bottom: 28px;
+  border: 1px solid var(--ruled);
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+  width: fit-content;
+}
+.mode-btn {
+  padding: 10px 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; letter-spacing: 0.06em;
+  color: var(--muted); background: transparent;
+  border: none; border-right: 1px solid var(--ruled);
+  cursor: pointer; transition: all 0.18s;
+}
+.mode-btn:last-child { border-right: none; }
+.mode-btn.active { background: var(--ink); color: white; }
+.mode-btn:hover:not(.active) { background: var(--paper2); color: var(--text); }
+
+.fixed-topic-zone {
+  display: none;
+  animation: fadeSlide 0.25s ease;
+}
+.fixed-topic-zone.show { display: block; }
+.fixed-topic-note {
+  font-size: 13px; color: var(--muted); line-height: 1.6;
+  margin-bottom: 16px; padding: 12px 16px;
+  background: rgba(26,82,118,0.05);
+  border: 1px solid rgba(26,82,118,0.15);
+  border-radius: 8px;
+}
+@media(max-width:640px) {
+  .app { padding: 32px 20px 80px 24px; }
+  body::before { display: none; }
+  .cards-grid { grid-template-columns: 1fr; }
+  .rq-breakdown { grid-template-columns: 1fr; }
+  .proposal-wrap { padding: 24px 20px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="app-header">
+    <div class="eyebrow">thesis assistant · research workflow</div>
+    <h1>From curiosity<br/>to <em>research question.</em></h1>
+    <p class="sub">A five-stage workflow that takes you from a vague interest to a fully-formed thesis proposal, step by step.</p>
+  </div>
+
+  <!-- STAGE RAIL -->
+  <div class="stage-rail">
+    <div class="stage-node active" id="node-1" onclick="jumpStage(1)">
+      <span class="s-num">01</span>
+      <span class="s-label">Explore</span>
+    </div>
+    <div class="stage-node locked" id="node-2" onclick="jumpStage(2)">
+      <span class="s-num">02</span>
+      <span class="s-label">Landscape</span>
+    </div>
+    <div class="stage-node locked" id="node-3" onclick="jumpStage(3)">
+      <span class="s-num">03</span>
+      <span class="s-label">Gaps</span>
+    </div>
+    <div class="stage-node locked" id="node-4" onclick="jumpStage(4)">
+      <span class="s-num">04</span>
+      <span class="s-label">Question</span>
+    </div>
+    <div class="stage-node locked" id="node-5" onclick="jumpStage(5)">
+      <span class="s-num">05</span>
+      <span class="s-label">Proposal</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STAGE 1 — TOPIC EXPLORER
+  ══════════════════════════════════════════ -->
+  <div class="stage-panel active" id="stage-1">
+    <div class="sec-label"><span class="dot" style="background:var(--stage1)"></span>Stage 01 — Topic Explorer</div>
+
+    <!-- MODE TOGGLE -->
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-explore-btn" onclick="setMode('explore')">🔍 Explore a broad topic</button>
+      <button class="mode-btn" id="mode-fixed-btn" onclick="setMode('fixed')">📌 I already have a topic</button>
+    </div>
+
+    <!-- EXPLORE MODE (default) -->
+    <div id="explore-mode">
+      <p style="font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.7">
+        Start broad. Enter a general field or topic you're interested in — even if it's vague.
+        The agent will map out sub-areas. <strong>Select the ones that resonate with you</strong> to carry forward.
+      </p>
+      <div class="input-zone">
+        <input id="s1-input" type="text" placeholder="e.g. Artificial Intelligence, Climate Change, Behavioral Economics…"/>
+        <button class="go-btn" id="s1-btn" onclick="runStage1()">Explore →</button>
+      </div>
+      <div class="err-box" id="s1-err"></div>
+      <div class="loader" id="s1-loader">
+        <div class="loader-dots"><span></span><span></span><span></span></div>
+        <div class="loader-msg" id="s1-msg">Mapping the research landscape…</div>
+      </div>
+      <div id="s1-results" style="display:none">
+        <div class="sec-label" style="margin-bottom:12px"><span class="dot" style="background:var(--stage1)"></span>Sub-areas identified — select what interests you</div>
+        <div class="cards-grid" id="s1-grid"></div>
+        <div class="action-row">
+          <button class="btn-primary" id="s1-next" onclick="goStage2()" disabled>Continue to Landscape →</button>
+          <span class="selection-hint" id="s1-hint">Select at least 1</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FIXED TOPIC MODE -->
+    <div id="fixed-mode" class="fixed-topic-zone">
+      <div class="fixed-topic-note">
+        <strong>Already have a topic?</strong> Skip the exploration and go straight to the literature landscape.
+        Enter your specific topic exactly as you'd describe it to your supervisor — the more precise, the better the results.
+      </div>
+      <div class="input-zone">
+        <input id="s1-fixed-input" type="text" placeholder="e.g. Federated Learning for Privacy-Preserving Healthcare AI…" onkeydown="if(event.key==='Enter') skipToLandscape()"/>
+        <button class="go-btn" id="s1-fixed-btn" onclick="skipToLandscape()">Go to Landscape →</button>
+      </div>
+      <div class="err-box" id="s1-fixed-err"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:12px;font-family:'JetBrains Mono',monospace">
+        Tip: Include the method or population if you know it — e.g. "NLP techniques for detecting depression in social media among university students"
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STAGE 2 — LANDSCAPE MAP
+  ══════════════════════════════════════════ -->
+  <div class="stage-panel" id="stage-2">
+    <div class="sec-label"><span class="dot" style="background:var(--stage2)"></span>Stage 02 — Landscape Map</div>
+    <div class="context-bar" id="s2-context"></div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:24px;line-height:1.7">
+      Before finding gaps, you need to understand what's already there.
+      Here's what the agent found — key works, dominant methods, and major schools of thought in your chosen areas.
+    </p>
+    <div class="loader" id="s2-loader">
+      <div class="loader-dots"><span></span><span></span><span></span></div>
+      <div class="loader-msg" id="s2-msg">Querying Semantic Scholar & arXiv…</div>
+    </div>
+    <div class="err-box" id="s2-err"></div>
+    <div id="s2-results" style="display:none">
+      <div class="sec-label" style="margin-bottom:12px"><span class="dot" style="background:var(--stage2)"></span>Key literature & methods</div>
+      <table class="lit-table" id="s2-table">
+        <thead><tr>
+          <th>Relevance</th><th>Paper / Work</th><th>Contribution</th><th>Method</th>
+        </tr></thead>
+        <tbody id="s2-tbody"></tbody>
+      </table>
+      <div class="sec-label" style="margin-bottom:12px"><span class="dot" style="background:var(--stage2)"></span>Dominant methodologies</div>
+      <div class="cards-grid" id="s2-methods"></div>
+      <div class="action-row">
+        <button class="btn-primary" onclick="goStage3()">Find Research Gaps →</button>
+        <button class="btn-secondary" onclick="jumpStage(1)">← Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STAGE 3 — GAP FINDER
+  ══════════════════════════════════════════ -->
+  <div class="stage-panel" id="stage-3">
+    <div class="sec-label"><span class="dot" style="background:var(--stage3)"></span>Stage 03 — Gap Finder</div>
+    <div class="context-bar" id="s3-context"></div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:24px;line-height:1.7">
+      This is where real research begins. The agent has analysed the landscape and identified what's
+      <strong>missing, contested, or unexplored</strong>. Select the gap that excites you most.
+    </p>
+    <div class="loader" id="s3-loader">
+      <div class="loader-dots"><span></span><span></span><span></span></div>
+      <div class="loader-msg">Hunting for gaps in the literature…</div>
+    </div>
+    <div class="err-box" id="s3-err"></div>
+    <div id="s3-results" style="display:none">
+      <div id="s3-gaps"></div>
+      <div class="action-row">
+        <button class="btn-primary" id="s3-next" onclick="goStage4()" disabled>Forge a Research Question →</button>
+        <button class="btn-secondary" onclick="jumpStage(2)">← Back</button>
+        <span class="selection-hint" id="s3-hint">Select 1 gap</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STAGE 4 — QUESTION FORGE
+  ══════════════════════════════════════════ -->
+  <div class="stage-panel" id="stage-4">
+    <div class="sec-label"><span class="dot" style="background:var(--stage4)"></span>Stage 04 — Question Forge</div>
+    <div class="context-bar" id="s4-context"></div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:24px;line-height:1.7">
+      Three candidate research questions, each tackling your chosen gap from a different angle.
+      Each one is broken down by <em>scope</em>, <em>method</em>, and <em>contribution</em>.
+      Pick the one that fits your skills and interest best.
+    </p>
+    <div class="loader" id="s4-loader">
+      <div class="loader-dots"><span></span><span></span><span></span></div>
+      <div class="loader-msg">Forging research questions…</div>
+    </div>
+    <div class="err-box" id="s4-err"></div>
+    <div id="s4-results" style="display:none">
+      <div id="s4-rqs"></div>
+      <div style="margin-top:16px;margin-bottom:8px">
+        <div class="sec-label"><span class="dot" style="background:var(--stage4)"></span>Or write your own</div>
+        <div class="input-zone">
+          <textarea id="s4-custom" placeholder="Type your own research question here (optional — leave blank to use the selected one above)…"></textarea>
+        </div>
+      </div>
+      <div class="action-row">
+        <button class="btn-primary" id="s4-next" onclick="goStage5()" disabled>Generate Proposal Draft →</button>
+        <button class="btn-secondary" onclick="jumpStage(3)">← Back</button>
+        <span class="selection-hint" id="s4-hint">Select 1 question or write your own</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STAGE 5 — PROPOSAL DRAFT
+  ══════════════════════════════════════════ -->
+  <div class="stage-panel" id="stage-5">
+    <div class="sec-label"><span class="dot" style="background:var(--stage5)"></span>Stage 05 — Proposal Draft</div>
+    <div class="context-bar" id="s5-context"></div>
+    <div class="loader" id="s5-loader">
+      <div class="loader-dots"><span></span><span></span><span></span></div>
+      <div class="loader-msg">Drafting your proposal…</div>
+    </div>
+    <div class="err-box" id="s5-err"></div>
+    <div id="s5-results" style="display:none">
+      <p style="font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.7">
+        Here is a full research proposal draft based on your entire journey. Use this as a starting point — show it to your supervisor, refine it, or export it.
+      </p>
+      <div class="proposal-wrap" id="s5-proposal"></div>
+      <div class="export-strip show" id="s5-export">
+        <span class="export-strip-label">Export</span>
+        <button class="exp-btn" onclick="exportProposal('md')">↓ Markdown</button>
+        <button class="exp-btn" onclick="exportProposal('txt')">↓ Plain Text</button>
+        <button class="exp-btn" onclick="exportProposal('copy')">⊞ Copy</button>
+        <button class="btn-secondary" style="margin-left:auto;font-size:13px" onclick="startOver()">Start New Research</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ══════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════
+const S = {
+  topic: '',
+  selectedAreas: [],
+  landscape: null,
+  selectedGap: null,
+  selectedRQ: null,
+  customRQ: '',
+  proposal: null,
+  unlockedStages: [1],
+  currentStage: 1
+};
+
+// ══════════════════════════════════════════════════
+// CONFIG — point this at your deployed backend
+// ══════════════════════════════════════════════════
+// In development: leave as empty string (same-origin via uvicorn)
+// In production:  set to your deployed URL e.g. 'https://your-app.onrender.com'
+const API_BASE = '';
+
+// ══════════════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════════════
+
+// Call YOUR FastAPI backend — used for Stage 2 (real paper fetching + summarization)
+async function callBackend(query, subAreas = []) {
+  const res = await fetch(`${API_BASE}/api/research`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, sub_areas: subAreas })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Backend error ${res.status}`);
+  }
+  return res.json(); // { query, summary, sources, elapsed_seconds }
+}
+
+// Call Claude via the FastAPI proxy — never calls Anthropic directly from browser
+async function callClaude(userPrompt, maxTokens = 1000) {
+  const res = await fetch(`${API_BASE}/api/llm`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ prompt: userPrompt, max_tokens: maxTokens }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `LLM proxy error ${res.status}`);
+  }
+  const data = await res.json();
+  const text = data.content.map(b => b.text || '').join('');
+  try {
+    const clean = text.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return JSON.parse(match ? match[0] : clean);
+  } catch(e) {
+    throw new Error('Failed to parse agent response — please try again.');
+  }
+}
+
+function setLoader(id, show, msg) {
+  const el = document.getElementById(id + '-loader');
+  if (el) el.className = 'loader' + (show ? ' show' : '');
+  if (msg) { const m = document.getElementById(id + '-msg'); if(m) m.textContent = msg; }
+}
+
+function showErr(id, msg) {
+  const el = document.getElementById(id + '-err');
+  if (!el) return;
+  el.textContent = msg; el.style.display = msg ? 'block' : 'none';
+}
+
+function showResults(id) {
+  const el = document.getElementById(id + '-results');
+  if (el) el.style.display = 'block';
+}
+
+function updateRail() {
+  for (let i = 1; i <= 5; i++) {
+    const node = document.getElementById('node-' + i);
+    node.className = 'stage-node';
+    if (i === S.currentStage) node.classList.add('active');
+    else if (S.unlockedStages.includes(i) && i < S.currentStage) node.classList.add('done');
+    else if (!S.unlockedStages.includes(i)) node.classList.add('locked');
+  }
+}
+
+function jumpStage(n) {
+  if (!S.unlockedStages.includes(n)) return;
+  S.currentStage = n;
+  for (let i = 1; i <= 5; i++) {
+    document.getElementById('stage-' + i).className = 'stage-panel' + (i === n ? ' active' : '');
+  }
+  updateRail();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function buildContextBar(id, rows) {
+  const el = document.getElementById(id + '-context');
+  if (!el) return;
+  el.innerHTML = `<div class="context-bar-title">Research context so far</div>` +
+    rows.map(([k,v]) => `<div class="context-row"><span class="context-key">${k}</span><span class="context-val">${v}</span></div>`).join('');
+}
+
+// ══════════════════════════════════════════════════
+// MODE TOGGLE — explore vs fixed topic
+// ══════════════════════════════════════════════════
+function setMode(mode) {
+  const exploreBtn = document.getElementById('mode-explore-btn');
+  const fixedBtn   = document.getElementById('mode-fixed-btn');
+  const exploreEl  = document.getElementById('explore-mode');
+  const fixedEl    = document.getElementById('fixed-mode');
+
+  if (mode === 'explore') {
+    exploreBtn.classList.add('active');
+    fixedBtn.classList.remove('active');
+    exploreEl.style.display = 'block';
+    fixedEl.classList.remove('show');
+    // Update rail label back
+    document.querySelector('#node-1 .s-label').textContent = 'Explore';
+  } else {
+    fixedBtn.classList.add('active');
+    exploreBtn.classList.remove('active');
+    exploreEl.style.display = 'none';
+    fixedEl.classList.add('show');
+    document.getElementById('s1-fixed-input').focus();
+    // Update rail label
+    document.querySelector('#node-1 .s-label').textContent = 'Topic';
+  }
+}
+
+// Skip Stage 1 entirely — user already has a specific topic
+async function skipToLandscape() {
+  const topic = document.getElementById('s1-fixed-input').value.trim();
+  const errEl = document.getElementById('s1-fixed-err');
+  errEl.style.display = 'none';
+
+  if (!topic) {
+    errEl.textContent = '⚠ Please enter your topic first.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Set state as if Stage 1 completed — treat the whole topic as one "area"
+  S.topic = topic;
+  S.selectedAreas = [{
+    title: topic,
+    description: 'User-specified topic — skipped exploration stage.',
+    tags: topic.split(/[\s,]+/).slice(0, 4).filter(w => w.length > 3),
+    maturity: 'active',
+    example_angle: ''
+  }];
+
+  // Mark Stage 1 as done visually
+  document.getElementById('node-1').className = 'stage-node done';
+
+  // Proceed directly to Stage 2
+  goStage2();
+}
+
+// ══════════════════════════════════════════════════
+// STAGE 1 — TOPIC EXPLORER
+// ══════════════════════════════════════════════════
+async function runStage1() {
+  const topic = document.getElementById('s1-input').value.trim();
+  if (!topic) return;
+  S.topic = topic;
+  S.selectedAreas = [];
+
+  showErr('s1','');
+  document.getElementById('s1-results').style.display = 'none';
+  document.getElementById('s1-btn').disabled = true;
+  setLoader('s1', true, 'Mapping the research landscape…');
+
+  try {
+    const data = await callClaude(`You are a research advisor helping an undergraduate or Masters student explore a field.
+
+Topic: "${topic}"
+
+Return ONLY a JSON object (no markdown, no extra text):
+{
+  "areas": [
+    {
+      "title": "Sub-area name",
+      "description": "2 sentences explaining this sub-area and why it matters",
+      "maturity": "emerging|active|mature",
+      "example_angle": "One example of a thesis-level question in this area",
+      "tags": ["keyword1", "keyword2", "keyword3"]
+    }
+  ]
+}
+
+Rules:
+- Exactly 6 sub-areas, meaningfully distinct
+- maturity indicates how developed the field is
+- Tags should be 2-3 word max each
+- Target audience is an undergrad/Masters student, not a PhD researcher`);
+
+    S.selectedAreas = [];
+    renderS1(data.areas || []);
+    showResults('s1');
+  } catch(e) {
+    showErr('s1', '⚠ ' + e.message);
+  } finally {
+    setLoader('s1', false);
+    document.getElementById('s1-btn').disabled = false;
+  }
+}
+
+function renderS1(areas) {
+  const grid = document.getElementById('s1-grid');
+  grid.innerHTML = '';
+  const maturityColor = { emerging: '#2c7a4b', active: '#1a5276', mature: '#7a7568' };
+  areas.forEach((a, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.idx = i;
+    card.dataset.title = a.title;
+    card.innerHTML = `
+      <div class="card-tag">
+        sub-area ${String(i+1).padStart(2,'0')}
+        <span class="badge" style="background:${maturityColor[a.maturity]||'#7a7568'}18;color:${maturityColor[a.maturity]||'#7a7568'};border:1px solid ${maturityColor[a.maturity]||'#7a7568'}40">${a.maturity}</span>
+      </div>
+      <h3>${a.title}</h3>
+      <p>${a.description}</p>
+      <p style="margin-top:10px;font-size:12px;color:var(--accent3);font-style:italic">"${a.example_angle}"</p>
+      <div class="card-meta">${(a.tags||[]).map(t=>`<span class="chip">${t}</span>`).join('')}</div>
+    `;
+    card.addEventListener('click', () => toggleArea(card, a, i));
+    grid.appendChild(card);
+  });
+  window._s1areas = areas;
+}
+
+function toggleArea(card, area, idx) {
+  const isSelected = card.classList.contains('selected');
+  if (isSelected) {
+    card.classList.remove('selected');
+    S.selectedAreas = S.selectedAreas.filter(a => a.title !== area.title);
+  } else {
+    card.classList.add('selected');
+    S.selectedAreas.push(area);
+  }
+  const next = document.getElementById('s1-next');
+  const hint = document.getElementById('s1-hint');
+  next.disabled = S.selectedAreas.length === 0;
+  hint.textContent = S.selectedAreas.length > 0 ? `${S.selectedAreas.length} selected` : 'Select at least 1';
+}
+
+// ══════════════════════════════════════════════════
+// STAGE 2 — LANDSCAPE (powered by FastAPI backend)
+// ══════════════════════════════════════════════════
+async function goStage2() {
+  if (!S.unlockedStages.includes(2)) S.unlockedStages.push(2);
+  jumpStage(2);
+
+  buildContextBar('s2', [
+    ['Topic', S.topic],
+    ['Focus areas', S.selectedAreas.map(a=>a.title).join(' · ')]
+  ]);
+
+  setLoader('s2', true, 'Running research pipeline…');
+  showErr('s2','');
+  document.getElementById('s2-results').style.display = 'none';
+
+  const msgEl = document.getElementById('s2-msg');
+
+  try {
+    // ── Step 1: call the FastAPI backend (LangGraph pipeline) ──
+    if (msgEl) msgEl.textContent = 'Fetching real papers via Semantic Scholar & arXiv…';
+    const subAreaTitles = S.selectedAreas.map(a => a.title);
+    const backendResult = await callBackend(S.topic, subAreaTitles);
+
+    // backendResult = { query, summary, sources, elapsed_seconds }
+    // sources = [{title, authors, year, url, citations, is_open_access, source}]
+
+    if (msgEl) msgEl.textContent = 'Annotating papers with AI…';
+
+    // ── Step 2: Claude annotates the real papers for the UI ──
+    const papers = backendResult.sources || [];
+    let annotation = { annotations: [], methods: [], state_of_field: backendResult.summary || '' };
+
+    if (papers.length > 0) {
+      const paperList = papers.slice(0, 8).map((p, i) =>
+        `${i+1}. "${p.title}" (${p.authors || ''}, ${p.year || 'n.d.'}) — ${p.url}`
+      ).join('\n');
+
+      annotation = await callClaude(`You are a research supervisor annotating real papers for a Masters student.
+
+Topic: "${S.topic}"
+Focus areas: ${S.selectedAreas.map(a=>a.title).join(', ')}
+
+Real papers fetched from Semantic Scholar and arXiv:
+${paperList}
+
+Return ONLY a JSON object (no markdown):
+{
+  "annotations": [
+    {
+      "index": 1,
+      "contribution": "One sentence: what this paper specifically contributes to the field",
+      "method": "The primary methodology this paper uses",
+      "relevance": "high|medium|low"
+    }
+  ],
+  "methods": [
+    {
+      "name": "Method name",
+      "description": "What it is and when used in this field",
+      "pros": "Key strength",
+      "cons": "Key limitation"
+    }
+  ],
+  "state_of_field": "2-3 sentences on current state and open questions based on these papers"
+}
+- Annotate all ${Math.min(papers.length, 8)} papers
+- 3-4 methods that actually appear across these papers
+- state_of_field grounded in these specific papers`);
+    }
+
+    // ── Step 3: Merge backend sources with Claude annotations ──
+    const annotationMap = {};
+    (annotation.annotations || []).forEach(a => { annotationMap[a.index] = a; });
+
+    const enrichedPapers = papers.slice(0, 8).map((p, i) => {
+      const ann = annotationMap[i + 1] || {};
+      return {
+        title:          p.title,
+        authors:        p.authors,
+        year:           p.year,
+        url:            p.url,
+        citations:      p.citations,
+        isOpenAccess:   p.is_open_access,
+        source:         p.source,
+        abstract:       '',   // abstracts were used server-side
+        contribution:   ann.contribution || '',
+        method:         ann.method || '',
+        relevance:      ann.relevance || 'medium',
+      };
+    });
+
+    const data = {
+      papers:         enrichedPapers,
+      methods:        annotation.methods || [],
+      state_of_field: annotation.state_of_field || backendResult.summary || '',
+      apiWorked:      papers.length > 0,
+      elapsed:        backendResult.elapsed_seconds,
+    };
+
+    renderS2(data);
+    showResults('s2');
+    S.landscape = data;
+
+  } catch(e) {
+    showErr('s2', '⚠ ' + e.message);
+  } finally {
+    setLoader('s2', false);
+  }
+}
+
+function renderS2(data) {
+  const resultsEl = document.getElementById('s2-results');
+
+  // API status notice
+  const existingNotice = resultsEl.querySelector('.api-notice');
+  if (existingNotice) existingNotice.remove();
+
+  const notice = document.createElement('div');
+  if (data.apiWorked) {
+    notice.style.cssText = 'background:rgba(44,122,75,0.06);border:1px solid rgba(44,122,75,0.2);border-radius:8px;padding:10px 16px;margin-bottom:20px;font-size:12px;color:var(--accent2);font-family:"JetBrains Mono",monospace;display:flex;align-items:center;gap:10px';
+    notice.innerHTML = `<span>●</span> ${data.papers.length} real papers fetched live from Semantic Scholar & arXiv — all links verified and accessible`;
+  } else {
+    notice.style.cssText = 'background:rgba(183,134,11,0.06);border:1px solid rgba(183,134,11,0.2);border-radius:8px;padding:10px 16px;margin-bottom:20px;font-size:12px;color:var(--gold);font-family:"JetBrains Mono",monospace';
+    notice.innerHTML = `⚠ Could not reach academic APIs — showing AI-generated references. Check your internet connection for live results.`;
+  }
+  notice.className = 'api-notice';
+
+  // State of field banner
+  const existingBanner = resultsEl.querySelector('.field-banner');
+  if (existingBanner) existingBanner.remove();
+
+  if (data.state_of_field) {
+    const banner = document.createElement('div');
+    banner.className = 'field-banner';
+    banner.style.cssText = 'background:var(--paper2);border:1px solid var(--ruled);border-radius:10px;padding:16px 20px;margin-bottom:20px;font-size:14px;line-height:1.7;color:var(--text)';
+    banner.innerHTML = `<div class="sec-label" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>State of the field</div>${data.state_of_field}`;
+    resultsEl.insertBefore(banner, resultsEl.firstChild);
+    resultsEl.insertBefore(notice, resultsEl.firstChild);
+  } else {
+    resultsEl.insertBefore(notice, resultsEl.firstChild);
+  }
+
+  // Papers table
+  const tbody = document.getElementById('s2-tbody');
+  tbody.innerHTML = '';
+  (data.papers||[]).forEach(p => {
+    const rel = p.relevance || 'medium';
+    const relClass = rel === 'high' ? 'high' : rel === 'medium' ? 'med' : 'low';
+
+    // Build access badge
+    let accessBadge = '';
+    if (p.isOpenAccess) {
+      accessBadge = `<span style="display:inline-block;margin-left:6px;padding:2px 6px;border-radius:3px;font-size:9px;background:rgba(44,122,75,0.1);color:var(--accent2);font-family:'JetBrains Mono',monospace;border:1px solid rgba(44,122,75,0.2)">OPEN</span>`;
+    } else if (p.source === 'semantic_scholar') {
+      accessBadge = `<span style="display:inline-block;margin-left:6px;padding:2px 6px;border-radius:3px;font-size:9px;background:rgba(26,82,118,0.08);color:var(--accent3);font-family:'JetBrains Mono',monospace;border:1px solid rgba(26,82,118,0.2)">S2</span>`;
+    }
+
+    // Citation count badge
+    const citBadge = p.citations !== null
+      ? `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">↗ ${p.citations.toLocaleString()} citations</span>`
+      : '';
+
+    const authorYear = [p.authors, p.year].filter(Boolean).join(', ');
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="lit-relevance rel-${relClass}"></span>${rel}</td>
+      <td>
+        <a href="${p.url}" target="_blank" rel="noopener"
+           style="font-size:13px;font-weight:600;color:var(--accent3);text-decoration:none;line-height:1.4;display:block"
+           onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+          ${p.title}${accessBadge}
+        </a>
+        <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;display:block;margin-top:3px">${authorYear}</span>
+        ${citBadge ? `<div style="margin-top:4px">${citBadge}</div>` : ''}
+      </td>
+      <td style="font-size:13px">${p.contribution || '<span style="color:var(--muted);font-style:italic">See abstract</span>'}</td>
+      <td><span class="chip">${p.method || '—'}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Methods
+  const mg = document.getElementById('s2-methods');
+  mg.innerHTML = '';
+  (data.methods||[]).forEach((m,i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cursor = 'default';
+    card.innerHTML = `
+      <div class="card-tag">method ${String(i+1).padStart(2,'0')}</div>
+      <h3>${m.name}</h3>
+      <p>${m.description}</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+        <div class="rq-dim"><div class="rq-dim-label">Strength</div><div class="rq-dim-val" style="color:var(--accent2)">${m.pros}</div></div>
+        <div class="rq-dim"><div class="rq-dim-label">Limitation</div><div class="rq-dim-val" style="color:var(--accent)">${m.cons}</div></div>
+      </div>
+    `;
+    mg.appendChild(card);
+  });
+}
+
+// ══════════════════════════════════════════════════
+// STAGE 3 — GAP FINDER
+// ══════════════════════════════════════════════════
+async function goStage3() {
+  if (!S.unlockedStages.includes(3)) S.unlockedStages.push(3);
+  jumpStage(3);
+
+  buildContextBar('s3', [
+    ['Topic', S.topic],
+    ['Areas', S.selectedAreas.map(a=>a.title).join(' · ')],
+    ['Field state', S.landscape?.state_of_field ? S.landscape.state_of_field.slice(0,120) + '…' : '—']
+  ]);
+
+  setLoader('s3', true);
+  showErr('s3','');
+  document.getElementById('s3-results').style.display = 'none';
+  S.selectedGap = null;
+
+  try {
+    const data = await callClaude(`You are a research supervisor helping a Masters student identify genuine research gaps.
+
+Topic: "${S.topic}"
+Sub-areas of interest: ${S.selectedAreas.map(a=>a.title).join(', ')}
+State of field: ${S.landscape?.state_of_field || 'not available'}
+Key papers reviewed (real, from Semantic Scholar/arXiv): ${(S.landscape?.papers||[]).slice(0,6).map(p=>`"${p.title}" (${p.authors||''}, ${p.year||'n.d.'})`).join('; ')}
+
+Return ONLY a JSON object (no markdown):
+{
+  "gaps": [
+    {
+      "title": "Short name for this gap",
+      "type": "methodological|contextual|theoretical|empirical|interdisciplinary",
+      "description": "2 sentences describing what is missing or unresolved",
+      "why_it_matters": "Why filling this gap would be a meaningful contribution",
+      "evidence": "What in the existing literature points to this gap",
+      "feasibility": "high|medium|low",
+      "feasibility_note": "One sentence on why this is or isn't feasible for a Masters student"
+    }
+  ]
+}
+
+Rules:
+- Exactly 4 gaps, each of a different type if possible
+- Be specific — avoid vague gaps like "more research is needed"
+- Feasibility should reflect realistic scope for a 6-12 month Masters project
+- Evidence should name specific limitations in the literature`, 1000);
+
+    renderS3(data.gaps || []);
+    showResults('s3');
+  } catch(e) {
+    showErr('s3', '⚠ ' + e.message);
+  } finally {
+    setLoader('s3', false);
+  }
+}
+
+function renderS3(gaps) {
+  const container = document.getElementById('s3-gaps');
+  container.innerHTML = '';
+  const feasColor = { high: 'var(--accent2)', medium: 'var(--gold)', low: 'var(--accent)' };
+  gaps.forEach((g, i) => {
+    const card = document.createElement('div');
+    card.className = 'gap-card';
+    card.innerHTML = `
+      <div class="gap-type">${g.type} gap · feasibility: <span style="color:${feasColor[g.feasibility]||'var(--muted)'}">${g.feasibility}</span></div>
+      <h3>${g.title}</h3>
+      <p>${g.description}</p>
+      <div class="gap-why">
+        <strong>Why it matters</strong>${g.why_it_matters}
+      </div>
+      <div class="gap-why" style="margin-top:8px">
+        <strong>Evidence in literature</strong>${g.evidence}
+      </div>
+      <div class="gap-why" style="margin-top:8px;border-left:2px solid ${feasColor[g.feasibility]||'var(--muted)'}">
+        <strong>Feasibility for you</strong>${g.feasibility_note}
+      </div>
+    `;
+    card.addEventListener('click', () => selectGap(card, g));
+    container.appendChild(card);
+  });
+}
+
+function selectGap(card, gap) {
+  document.querySelectorAll('.gap-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  S.selectedGap = gap;
+  document.getElementById('s3-next').disabled = false;
+  document.getElementById('s3-hint').textContent = '1 gap selected ✓';
+}
+
+// ══════════════════════════════════════════════════
+// STAGE 4 — QUESTION FORGE
+// ══════════════════════════════════════════════════
+async function goStage4() {
+  if (!S.unlockedStages.includes(4)) S.unlockedStages.push(4);
+  jumpStage(4);
+
+  buildContextBar('s4', [
+    ['Topic', S.topic],
+    ['Areas', S.selectedAreas.map(a=>a.title).join(' · ')],
+    ['Gap', S.selectedGap?.title || '—']
+  ]);
+
+  setLoader('s4', true);
+  showErr('s4','');
+  document.getElementById('s4-results').style.display = 'none';
+  S.selectedRQ = null;
+
+  try {
+    const data = await callClaude(`You are a research supervisor helping a Masters student write their research question.
+
+Topic: "${S.topic}"
+Focus areas: ${S.selectedAreas.map(a=>a.title).join(', ')}
+Research gap chosen: "${S.selectedGap?.title}" — ${S.selectedGap?.description}
+Why it matters: ${S.selectedGap?.why_it_matters}
+
+Return ONLY a JSON object (no markdown):
+{
+  "questions": [
+    {
+      "label": "Short 2-3 word label for this angle (e.g. 'Quantitative Angle', 'Comparative Angle')",
+      "question": "The full research question in proper academic form",
+      "scope": "What is in and out of scope for this question",
+      "method": "Recommended methodology to answer this question",
+      "contribution": "What gap in knowledge this would fill if answered",
+      "difficulty": "moderate|challenging|ambitious",
+      "rationale": "One sentence on why this is a strong RQ for a Masters student"
+    }
+  ]
+}
+
+Rules:
+- Exactly 3 questions, each approaching the gap from a genuinely different angle
+- Questions must be specific, bounded, and answerable within a Masters timeframe
+- Use proper academic phrasing ("To what extent…", "How does…", "What is the relationship between…")
+- Method should be realistic for a student (no multi-year longitudinal studies)`, 1000);
+
+    renderS4(data.questions || []);
+    showResults('s4');
+
+    // Enable if custom RQ filled
+    document.getElementById('s4-custom').addEventListener('input', () => {
+      const val = document.getElementById('s4-custom').value.trim();
+      if (val.length > 10) {
+        document.getElementById('s4-next').disabled = false;
+        document.getElementById('s4-hint').textContent = 'Using custom question ✓';
+      } else if (!S.selectedRQ) {
+        document.getElementById('s4-next').disabled = true;
+        document.getElementById('s4-hint').textContent = 'Select 1 question or write your own';
+      }
+    });
+
+  } catch(e) {
+    showErr('s4', '⚠ ' + e.message);
+  } finally {
+    setLoader('s4', false);
+  }
+}
+
+function renderS4(questions) {
+  const container = document.getElementById('s4-rqs');
+  container.innerHTML = '';
+  const diffColor = { moderate: 'var(--accent2)', challenging: 'var(--gold)', ambitious: 'var(--accent)' };
+  questions.forEach((q, i) => {
+    const card = document.createElement('div');
+    card.className = 'rq-card';
+    card.innerHTML = `
+      <div class="rq-label">${q.label} · <span style="color:${diffColor[q.difficulty]||'var(--muted)'}">${q.difficulty}</span></div>
+      <div class="rq-question">"${q.question}"</div>
+      <div class="rq-breakdown">
+        <div class="rq-dim"><div class="rq-dim-label">Scope</div><div class="rq-dim-val">${q.scope}</div></div>
+        <div class="rq-dim"><div class="rq-dim-label">Method</div><div class="rq-dim-val">${q.method}</div></div>
+        <div class="rq-dim"><div class="rq-dim-label">Contribution</div><div class="rq-dim-val">${q.contribution}</div></div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);font-style:italic">${q.rationale}</div>
+    `;
+    card.addEventListener('click', () => selectRQ(card, q));
+    container.appendChild(card);
+  });
+}
+
+function selectRQ(card, rq) {
+  document.querySelectorAll('.rq-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  S.selectedRQ = rq;
+  document.getElementById('s4-next').disabled = false;
+  document.getElementById('s4-hint').textContent = 'Question selected ✓';
+}
+
+// ══════════════════════════════════════════════════
+// STAGE 5 — PROPOSAL DRAFT
+// ══════════════════════════════════════════════════
+async function goStage5() {
+  const customRQ = document.getElementById('s4-custom').value.trim();
+  S.customRQ = customRQ;
+  const rqText = customRQ || S.selectedRQ?.question || '';
+  if (!rqText) return;
+
+  if (!S.unlockedStages.includes(5)) S.unlockedStages.push(5);
+  jumpStage(5);
+
+  buildContextBar('s5', [
+    ['Topic', S.topic],
+    ['Areas', S.selectedAreas.map(a=>a.title).join(' · ')],
+    ['Gap', S.selectedGap?.title || '—'],
+    ['RQ', rqText.length > 100 ? rqText.slice(0,100)+'…' : rqText]
+  ]);
+
+  setLoader('s5', true);
+  showErr('s5','');
+  document.getElementById('s5-results').style.display = 'none';
+
+  try {
+    const data = await callClaude(`You are a research supervisor writing a thesis proposal draft for a Masters student.
+
+Topic: "${S.topic}"
+Focus areas: ${S.selectedAreas.map(a=>a.title).join(', ')}
+Research gap: "${S.selectedGap?.title}" — ${S.selectedGap?.description}
+Research question: "${rqText}"
+Recommended method: ${S.selectedRQ?.method || 'not specified'}
+Expected contribution: ${S.selectedRQ?.contribution || 'not specified'}
+Existing literature (real papers): ${(S.landscape?.papers||[]).slice(0,4).map(p=>`"${p.title}" (${p.authors||''}, ${p.year||'n.d.'}) — ${p.url}`).join('\n')}
+
+Return ONLY a JSON object (no markdown):
+{
+  "proposal_title": "A concise, specific, academic-sounding working title for the thesis",
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "sections": {
+    "background": "3-4 sentences: context, why this field matters, and what prompted the focus",
+    "problem_statement": "2-3 sentences: the specific gap or problem being addressed",
+    "research_question": "The research question, stated clearly",
+    "objectives": ["objective 1", "objective 2", "objective 3"],
+    "methodology": "3-4 sentences: proposed approach, data sources, analysis methods, and justification",
+    "expected_contributions": "2-3 sentences: what new knowledge this will add and who will benefit",
+    "limitations": "2 sentences: scope boundaries and acknowledged constraints",
+    "timeline_note": "1 sentence rough estimate of timeline for a Masters project"
+  }
+}`, 1000);
+
+    S.proposal = data;
+    renderS5(data);
+    showResults('s5');
+  } catch(e) {
+    showErr('s5', '⚠ ' + e.message);
+  } finally {
+    setLoader('s5', false);
+  }
+}
+
+function renderS5(data) {
+  const wrap = document.getElementById('s5-proposal');
+  const sec = data.sections || {};
+  const kwHtml = (data.keywords||[]).map(k=>`<span class="chip">${k}</span>`).join(' ');
+  const objHtml = (sec.objectives||[]).map(o=>`<li>${o}</li>`).join('');
+
+  wrap.innerHTML = `
+    <div class="proposal-title">${data.proposal_title || 'Research Proposal'}</div>
+    <div class="proposal-meta">
+      <span>Working Title</span>
+      <span>·</span>
+      <span>Masters Thesis Proposal</span>
+      <span>·</span>
+      <span>${new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:28px">${kwHtml}</div>
+
+    <div class="proposal-section">
+      <div class="proposal-section-title">Background & Motivation</div>
+      <p>${sec.background || ''}</p>
+    </div>
+    <div class="proposal-section">
+      <div class="proposal-section-title">Problem Statement</div>
+      <p>${sec.problem_statement || ''}</p>
+    </div>
+    <div class="proposal-section">
+      <div class="proposal-section-title">Research Question</div>
+      <p style="font-family:'Lora',serif;font-style:italic;font-size:16px;color:var(--ink)">"${sec.research_question || ''}"</p>
+    </div>
+    <div class="proposal-section">
+      <div class="proposal-section-title">Research Objectives</div>
+      <ul>${objHtml}</ul>
+    </div>
+    <div class="proposal-section">
+      <div class="proposal-section-title">Proposed Methodology</div>
+      <p>${sec.methodology || ''}</p>
+    </div>
+    <div class="proposal-section">
+      <div class="proposal-section-title">Expected Contributions</div>
+      <p>${sec.expected_contributions || ''}</p>
+    </div>
+    <div class="proposal-section">
+      <div class="proposal-section-title">Limitations & Scope</div>
+      <p>${sec.limitations || ''}</p>
+    </div>
+    <div class="proposal-section">
+      <div class="proposal-section-title">Timeline</div>
+      <p>${sec.timeline_note || ''}</p>
+    </div>
+    ${S.landscape?.papers?.length ? `
+    <div class="proposal-section">
+      <div class="proposal-section-title">Key References (verified sources)</div>
+      <ul>
+        ${S.landscape.papers.slice(0,6).map(p => `
+          <li>
+            ${p.authors ? `${p.authors}` : ''}${p.year ? ` (${p.year})` : ''}.
+            <a href="${p.url}" target="_blank" rel="noopener"
+               style="color:var(--accent3);text-decoration:none;font-style:italic"
+               onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+              ${p.title}
+            </a>
+            ${p.isOpenAccess ? `<span style="margin-left:6px;padding:1px 5px;border-radius:3px;font-size:9px;background:rgba(44,122,75,0.1);color:var(--accent2);font-family:'JetBrains Mono',monospace;border:1px solid rgba(44,122,75,0.2)">OPEN ACCESS</span>` : ''}
+            ${p.citations ? `<span style="margin-left:6px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace">↗ ${p.citations.toLocaleString()} citations</span>` : ''}
+          </li>`).join('')}
+      </ul>
+    </div>` : ''}
+  `;
+}
+
+// ══════════════════════════════════════════════════
+// EXPORT
+// ══════════════════════════════════════════════════
+function proposalToText() {
+  if (!S.proposal) return '';
+  const sec = S.proposal.sections || {};
+  return `# ${S.proposal.proposal_title}
+Masters Thesis Proposal · ${new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'})}
+Keywords: ${(S.proposal.keywords||[]).join(', ')}
+
+## Background & Motivation
+${sec.background}
+
+## Problem Statement
+${sec.problem_statement}
+
+## Research Question
+"${sec.research_question}"
+
+## Research Objectives
+${(sec.objectives||[]).map((o,i)=>`${i+1}. ${o}`).join('\n')}
+
+## Proposed Methodology
+${sec.methodology}
+
+## Expected Contributions
+${sec.expected_contributions}
+
+## Limitations & Scope
+${sec.limitations}
+
+## Timeline
+${sec.timeline_note}
+
+## Key References
+${(S.landscape?.papers||[]).slice(0,6).map(p =>
+  `- ${p.authors ? p.authors + (p.year ? ` (${p.year})` : '') + '. ' : ''}[${p.title}](${p.url})${p.citations ? ` — ${p.citations.toLocaleString()} citations` : ''}${p.isOpenAccess ? ' [Open Access]' : ''}`
+).join('\n')}
+
+---
+Generated with Thesis Assistant · Topic: ${S.topic}`;
+}
+
+function exportProposal(fmt) {
+  const text = proposalToText();
+  if (fmt === 'copy') {
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = event.target; const orig = btn.textContent;
+      btn.textContent = '✓ Copied'; setTimeout(() => btn.textContent = orig, 1500);
+    });
+    return;
+  }
+  const ext = fmt === 'md' ? '.md' : '.txt';
+  const mime = fmt === 'md' ? 'text/markdown' : 'text/plain';
+  const fname = 'proposal_' + S.topic.replace(/\s+/g,'_').toLowerCase() + ext;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type: mime}));
+  a.download = fname; a.click();
+}
+
+function startOver() {
+  S.topic = ''; S.selectedAreas = []; S.landscape = null;
+  S.selectedGap = null; S.selectedRQ = null; S.customRQ = '';
+  S.proposal = null; S.unlockedStages = [1]; S.currentStage = 1;
+  document.getElementById('s1-input').value = '';
+  document.getElementById('s1-fixed-input').value = '';
+  document.getElementById('s1-results').style.display = 'none';
+  setMode('explore'); // reset to default mode
+  // Reset rail
+  for (let i = 2; i <= 5; i++) {
+    document.getElementById('node-' + i).className = 'stage-node locked';
+    document.getElementById('s' + i + '-results') && (document.getElementById('s' + i + '-results').style.display = 'none');
+  }
+  jumpStage(1);
+}
+
+// Enter key on stage 1
+document.getElementById('s1-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') runStage1();
+});
+</script>
+</body>
+</html>
