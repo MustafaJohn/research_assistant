@@ -940,6 +940,9 @@ async function skipToLandscape() {
     return;
   }
 
+  // Read depth from the fixed-mode selector
+  const depth = parseInt(document.getElementById('fixedDepthSelect')?.value) || 10;
+
   // Set state as if Stage 1 completed — treat the whole topic as one "area"
   S.topic = topic;
   S.selectedAreas = [{
@@ -950,11 +953,20 @@ async function skipToLandscape() {
     example_angle: ''
   }];
 
-  // Mark Stage 1 as done visually
+  // Mark Stage 1 as done visually and unlock Stage 2
   document.getElementById('node-1').className = 'stage-node done';
+  if (!S.unlockedStages.includes(2)) S.unlockedStages.push(2);
 
-  // Proceed directly to Stage 2
-  goStage2();
+  // Jump to Stage 2 panel
+  jumpStage(2);
+  buildContextBar('s2', [
+    ['Topic', S.topic],
+    ['Mode',  'Fixed topic — skipped exploration'],
+    ['Depth', `${depth} papers`]
+  ]);
+
+  // Run fetch directly with the chosen depth
+  await runStage2Fetch(depth);
 }
 
 // ══════════════════════════════════════════════════
