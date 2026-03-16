@@ -607,7 +607,14 @@ body::before {
       </div>
       <div class="input-zone">
         <input id="s1-fixed-input" type="text" placeholder="e.g. Federated Learning for Privacy-Preserving Healthcare AI…" onkeydown="if(event.key==='Enter') skipToLandscape()"/>
-        <button class="go-btn" id="s1-fixed-btn" onclick="skipToLandscape()">Go to Landscape →</button>
+        <div class="search-options">
+          <select class="depth-select" id="fixedDepthSelect" title="Number of papers to fetch">
+            <option value="8">Standard (8)</option>
+            <option value="14">Deep (14)</option>
+            <option value="20">Broad (20)</option>
+          </select>
+          <button class="go-btn" id="s1-fixed-btn" onclick="skipToLandscape()">Go to Landscape →</button>
+        </div>
       </div>
       <div class="err-box" id="s1-fixed-err"></div>
       <p style="font-size:12px;color:var(--muted);margin-top:12px;font-family:'JetBrains Mono',monospace">
@@ -1049,7 +1056,11 @@ async function goStage2() {
     ['Topic', S.topic],
     ['Focus areas', S.selectedAreas.map(a=>a.title).join(' · ')]
   ]);
-  const depth = parseInt(document.getElementById('depthSelect')?.value) || 10;
+  // Read depth from whichever selector is currently visible
+  const exploreDepth = parseInt(document.getElementById('depthSelect')?.value) || 10;
+  const fixedDepth   = parseInt(document.getElementById('fixedDepthSelect')?.value) || 10;
+  const isFixed      = document.getElementById('fixed-mode')?.classList.contains('show');
+  const depth        = isFixed ? fixedDepth : exploreDepth;
   await runStage2Fetch(depth);
 }
 
