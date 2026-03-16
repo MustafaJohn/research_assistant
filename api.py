@@ -25,8 +25,6 @@ try:
     load_dotenv()
 except ImportError:
     pass
-
-import google.genai as genai
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -106,9 +104,8 @@ def serve_frontend():
 def llm_proxy(req: LLMProxyRequest):
     """
     Proxy all frontend LLM calls through Gemini on the server.
+    Uses the fallback chain: gemini-2.5-pro → gemini-1.5-flash.
     The browser never calls any external API directly — no CORS issues.
-    Used by: Stage 1 exploration, Stage 3 gap analysis,
-             Stage 4 question forge, Stage 5 proposal draft.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -118,21 +115,24 @@ def llm_proxy(req: LLMProxyRequest):
         )
 
     try:
-        client   = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model    = "gemini-2.5-pro",
-            contents = req.prompt,
-        )
-        text = response.text
+        from tools.call_llm import call_llm
+        text = call_llm(req.prompt)
+        # Return in the shape the frontend expects
+        return {"content": [{"type": "text", "text": text}]}
 
-        # Return in a shape the frontend already knows how to parse
-        # (same structure as Anthropic responses the frontend was expecting)
-        return {
-            "content": [{"type": "text", "text": text}]
-        }
-    except Exception as e:
-        logger.error("Gemini proxy failed: %s", e)
+    except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    except RuntimeError as e:
+        # Clean user-facing message from call_llm
+        code = getattr(e, "status_code", None)
+        http_status = 503 if code in (503, 429) else 500
+        raise HTTPException(status_code=http_status, detail=str(e))
+    except Exception as e:
+        logger.error("LLM proxy unexpected error: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred. Please try again."
+        )
 
 
 @app.post("/api/research", response_model=ResearchResponse)
