@@ -19,12 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 def research_agent(state: ResearchState) -> ResearchState:
-    query     = state["query"]
-    sub_areas = [a.get("title", "") for a in state.get("sources", []) if a.get("title")]
+    query       = state["query"]
+    sub_areas   = [a.get("title", "") for a in state.get("sources", []) if a.get("title")]
+    max_results = state.get("max_results") or 10
 
-    logger.info("[researcher] Fetching papers for: %s", query)
+    logger.info("[researcher] Fetching %d papers for: %s", max_results, query)
 
-    result      = fetch_papers(topic=query, sub_areas=sub_areas or None, max_results=12)
+    result      = fetch_papers(topic=query, sub_areas=sub_areas or None, max_results=max_results)
     all_papers  = result["papers"]
 
     if not result["api_worked"]:
