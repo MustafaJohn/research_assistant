@@ -451,10 +451,22 @@ body::before {
 .err-box {
   background: rgba(192,57,43,0.06);
   border: 1px solid rgba(192,57,43,0.25);
-  border-radius: 8px; padding: 14px 18px;
+  border-radius: 8px; padding: 12px 16px;
   font-size: 13px; color: var(--accent);
   margin-bottom: 20px; display: none;
+  align-items: center; gap: 12px;
 }
+.retry-btn {
+  background: transparent;
+  border: 1px solid rgba(192,57,43,0.4);
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; padding: 5px 12px;
+  border-radius: 6px; cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+  margin-left: auto; flex-shrink: 0;
+}
+.retry-btn:hover { background: rgba(192,57,43,0.1); }
 
 /* ── MODE TOGGLE ── */
 .mode-toggle {
@@ -498,18 +510,38 @@ body::before {
   padding: 4px;
   border-left: 1px solid var(--ruled);
 }
-.depth-select {
+.depth-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: var(--paper2);
   border: 1px solid var(--ruled);
-  color: var(--muted);
-  font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
-  padding: 8px 10px;
   border-radius: 8px;
+  padding: 6px 10px;
+}
+.depth-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.depth-number {
+  width: 46px;
+  background: transparent;
+  border: none;
   outline: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.depth-number::-webkit-inner-spin-button,
+.depth-number::-webkit-outer-spin-button {
+  opacity: 1;
   cursor: pointer;
 }
-.depth-select:focus { border-color: var(--accent); color: var(--text); }
 
 @media(max-width:640px) {
   .app { padding: 32px 20px 80px 24px; }
@@ -576,15 +608,17 @@ body::before {
       <div class="input-zone">
         <input id="s1-input" type="text" placeholder="e.g. Artificial Intelligence, Climate Change, Behavioral Economics…"/>
         <div class="search-options">
-          <select class="depth-select" id="depthSelect" title="Number of papers to fetch">
-            <option value="8">Standard (8)</option>
-            <option value="14">Deep (14)</option>
-            <option value="20">Broad (20)</option>
-          </select>
+          <div class="depth-wrap" title="Number of papers to fetch (5–30)">
+            <span class="depth-label">Papers</span>
+            <input type="number" id="depthSelect" class="depth-number" value="10" min="5" max="30" step="1"/>
+          </div>
           <button class="go-btn" id="s1-btn" onclick="runStage1()">Explore →</button>
         </div>
       </div>
-      <div class="err-box" id="s1-err"></div>
+      <div class="err-box" id="s1-err">
+        <span id="s1-err-msg"></span>
+        <button class="retry-btn" onclick="retryStage(1)">↺ Retry</button>
+      </div>
       <div class="loader" id="s1-loader">
         <div class="loader-dots"><span></span><span></span><span></span></div>
         <div class="loader-msg" id="s1-msg">Mapping the research landscape…</div>
@@ -608,15 +642,16 @@ body::before {
       <div class="input-zone">
         <input id="s1-fixed-input" type="text" placeholder="e.g. Federated Learning for Privacy-Preserving Healthcare AI…" onkeydown="if(event.key==='Enter') skipToLandscape()"/>
         <div class="search-options">
-          <select class="depth-select" id="fixedDepthSelect" title="Number of papers to fetch">
-            <option value="8">Standard (8)</option>
-            <option value="14">Deep (14)</option>
-            <option value="20">Broad (20)</option>
-          </select>
+          <div class="depth-wrap" title="Number of papers to fetch (5–30)">
+            <span class="depth-label">Papers</span>
+            <input type="number" id="fixedDepthSelect" class="depth-number" value="10" min="5" max="30" step="1"/>
+          </div>
           <button class="go-btn" id="s1-fixed-btn" onclick="skipToLandscape()">Go to Landscape →</button>
         </div>
       </div>
-      <div class="err-box" id="s1-fixed-err"></div>
+      <div class="err-box" id="s1-fixed-err">
+        <span id="s1-fixed-err-msg"></span>
+      </div>
       <p style="font-size:12px;color:var(--muted);margin-top:12px;font-family:'JetBrains Mono',monospace">
         Tip: Include the method or population if you know it — e.g. "NLP techniques for detecting depression in social media among university students"
       </p>
@@ -637,7 +672,10 @@ body::before {
       <div class="loader-dots"><span></span><span></span><span></span></div>
       <div class="loader-msg" id="s2-msg">Querying Semantic Scholar & arXiv…</div>
     </div>
-    <div class="err-box" id="s2-err"></div>
+    <div class="err-box" id="s2-err">
+      <span id="s2-err-msg"></span>
+      <button class="retry-btn" onclick="retryStage(2)">↺ Retry</button>
+    </div>
     <div id="s2-results" style="display:none">
       <div class="sec-label" style="margin-bottom:12px"><span class="dot" style="background:var(--stage2)"></span>Key literature & methods</div>
       <table class="lit-table" id="s2-table">
@@ -661,11 +699,10 @@ body::before {
           <input id="refine-query" type="text" placeholder="Different keywords or angle…"
             style="flex:1;min-width:200px;background:white;border:1px solid var(--ruled);border-radius:8px;padding:10px 14px;font-family:'Outfit',sans-serif;font-size:14px;color:var(--text);outline:none"
             onkeydown="if(event.key==='Enter') runRefine()"/>
-          <select id="refine-depth" style="background:white;border:1px solid var(--ruled);color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;padding:10px 12px;border-radius:8px;outline:none;cursor:pointer">
-            <option value="8">Standard (8)</option>
-            <option value="14">Deep (14)</option>
-            <option value="20">Broad (20)</option>
-          </select>
+          <div class="depth-wrap" title="Number of papers to fetch (5–30)" style="border:1px solid var(--ruled);border-radius:8px;padding:6px 10px;background:white">
+            <span class="depth-label">Papers</span>
+            <input type="number" id="refine-depth" class="depth-number" value="10" min="5" max="30" step="1" style="background:white"/>
+          </div>
           <button class="btn-primary" onclick="runRefine()" style="white-space:nowrap">Search →</button>
           <button class="btn-secondary" onclick="hideRefinePanel()">Cancel</button>
         </div>
@@ -690,7 +727,10 @@ body::before {
       <div class="loader-dots"><span></span><span></span><span></span></div>
       <div class="loader-msg">Hunting for gaps in the literature…</div>
     </div>
-    <div class="err-box" id="s3-err"></div>
+    <div class="err-box" id="s3-err">
+      <span id="s3-err-msg"></span>
+      <button class="retry-btn" onclick="retryStage(3)">↺ Retry</button>
+    </div>
     <div id="s3-results" style="display:none">
       <div id="s3-gaps"></div>
       <div class="action-row">
@@ -716,7 +756,10 @@ body::before {
       <div class="loader-dots"><span></span><span></span><span></span></div>
       <div class="loader-msg">Forging research questions…</div>
     </div>
-    <div class="err-box" id="s4-err"></div>
+    <div class="err-box" id="s4-err">
+      <span id="s4-err-msg"></span>
+      <button class="retry-btn" onclick="retryStage(4)">↺ Retry</button>
+    </div>
     <div id="s4-results" style="display:none">
       <div id="s4-rqs"></div>
       <div style="margin-top:16px;margin-bottom:8px">
@@ -743,7 +786,10 @@ body::before {
       <div class="loader-dots"><span></span><span></span><span></span></div>
       <div class="loader-msg">Drafting your proposal…</div>
     </div>
-    <div class="err-box" id="s5-err"></div>
+    <div class="err-box" id="s5-err">
+      <span id="s5-err-msg"></span>
+      <button class="retry-btn" onclick="retryStage(5)">↺ Retry</button>
+    </div>
     <div id="s5-results" style="display:none">
       <p style="font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.7">
         Here is a full research proposal draft based on your entire journey. Use this as a starting point — show it to your supervisor, refine it, or export it.
@@ -754,6 +800,7 @@ body::before {
         <button class="exp-btn" onclick="exportProposal('md')">↓ Markdown</button>
         <button class="exp-btn" onclick="exportProposal('txt')">↓ Plain Text</button>
         <button class="exp-btn" onclick="exportProposal('copy')">⊞ Copy</button>
+        <button class="btn-secondary" style="font-size:13px" onclick="jumpStage(4)">← Back</button>
         <button class="btn-secondary" style="margin-left:auto;font-size:13px" onclick="startOver()">Start New Research</button>
       </div>
     </div>
@@ -866,7 +913,26 @@ function setLoader(id, show, msg) {
 function showErr(id, msg) {
   const el = document.getElementById(id + '-err');
   if (!el) return;
-  el.textContent = msg; el.style.display = msg ? 'block' : 'none';
+  // Use inner span if present (stages 2-5 have one), else set directly
+  const span = el.querySelector('span');
+  if (span) span.textContent = msg ? '⚠ ' + msg : '';
+  else el.textContent = msg ? '⚠ ' + msg : '';
+  el.style.display = msg ? 'flex' : 'none';
+}
+
+// Retry map — each stage knows how to re-run itself
+const RETRY_FN = {
+  1: () => runStage1(),
+  2: () => { const d = parseInt(document.getElementById('depthSelect')?.value) || 10; runStage2Fetch(d); },
+  3: () => goStage3(),
+  4: () => goStage4(),
+  5: () => goStage5(),
+};
+
+function retryStage(n) {
+  showErr('s' + n, '');  // clear error first
+  const fn = RETRY_FN[n];
+  if (fn) fn();
 }
 
 function showResults(id) {
