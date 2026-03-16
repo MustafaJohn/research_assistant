@@ -491,12 +491,33 @@ body::before {
   border: 1px solid rgba(26,82,118,0.15);
   border-radius: 8px;
 }
+.search-options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-left: 1px solid var(--ruled);
+}
+.depth-select {
+  background: var(--paper2);
+  border: 1px solid var(--ruled);
+  color: var(--muted);
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 8px 10px;
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+}
+.depth-select:focus { border-color: var(--accent); color: var(--text); }
+
 @media(max-width:640px) {
   .app { padding: 32px 20px 80px 24px; }
   body::before { display: none; }
   .cards-grid { grid-template-columns: 1fr; }
   .rq-breakdown { grid-template-columns: 1fr; }
   .proposal-wrap { padding: 24px 20px; }
+  .search-options { display: none; }
 }
 </style>
 </head>
@@ -554,7 +575,14 @@ body::before {
       </p>
       <div class="input-zone">
         <input id="s1-input" type="text" placeholder="e.g. Artificial Intelligence, Climate Change, Behavioral Economics…"/>
-        <button class="go-btn" id="s1-btn" onclick="runStage1()">Explore →</button>
+        <div class="search-options">
+          <select class="depth-select" id="depthSelect" title="Number of papers to fetch">
+            <option value="8">Standard (8)</option>
+            <option value="14">Deep (14)</option>
+            <option value="20">Broad (20)</option>
+          </select>
+          <button class="go-btn" id="s1-btn" onclick="runStage1()">Explore →</button>
+        </div>
       </div>
       <div class="err-box" id="s1-err"></div>
       <div class="loader" id="s1-loader">
@@ -616,6 +644,27 @@ body::before {
       <div class="action-row">
         <button class="btn-primary" onclick="goStage3()">Find Research Gaps →</button>
         <button class="btn-secondary" onclick="jumpStage(1)">← Back</button>
+        <button class="btn-secondary" onclick="showRefinePanel()" id="refine-toggle" style="margin-left:auto">⟳ Search Again</button>
+      </div>
+
+      <!-- REFINE PANEL — shown when user clicks Search Again -->
+      <div id="refine-panel" style="display:none;margin-top:16px;padding:16px 20px;background:var(--paper2);border:1px solid var(--ruled);border-radius:10px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);margin-bottom:12px">Refine your search</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <input id="refine-query" type="text" placeholder="Different keywords or angle…"
+            style="flex:1;min-width:200px;background:white;border:1px solid var(--ruled);border-radius:8px;padding:10px 14px;font-family:'Outfit',sans-serif;font-size:14px;color:var(--text);outline:none"
+            onkeydown="if(event.key==='Enter') runRefine()"/>
+          <select id="refine-depth" style="background:white;border:1px solid var(--ruled);color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;padding:10px 12px;border-radius:8px;outline:none;cursor:pointer">
+            <option value="8">Standard (8)</option>
+            <option value="14">Deep (14)</option>
+            <option value="20">Broad (20)</option>
+          </select>
+          <button class="btn-primary" onclick="runRefine()" style="white-space:nowrap">Search →</button>
+          <button class="btn-secondary" onclick="hideRefinePanel()">Cancel</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-top:10px;font-family:'JetBrains Mono',monospace">
+          Leave blank to re-run the same topic with a different paper count
+        </p>
       </div>
     </div>
   </div>
@@ -733,17 +782,50 @@ const API_BASE = '';
 // ══════════════════════════════════════════════════
 
 // Call YOUR FastAPI backend — used for Stage 2 (real paper fetching + summarization)
-async function callBackend(query, subAreas = []) {
+async function callBackend(query, subAreas = [], maxResults = 10) {
   const res = await fetch(`${API_BASE}/api/research`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, sub_areas: subAreas })
+    body: JSON.stringify({ query, sub_areas: subAreas, max_results: maxResults })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || `Backend error ${res.status}`);
   }
   return res.json(); // { query, summary, sources, elapsed_seconds }
+}
+
+// ── Search Again helpers ──────────────────────────────────────
+function showRefinePanel() {
+  document.getElementById('refine-panel').style.display = 'block';
+  document.getElementById('refine-toggle').style.display = 'none';
+  document.getElementById('refine-query').focus();
+}
+
+function hideRefinePanel() {
+  document.getElementById('refine-panel').style.display = 'none';
+  document.getElementById('refine-toggle').style.display = 'inline-flex';
+}
+
+async function runRefine() {
+  // Use a different query if provided, otherwise re-run the same topic
+  const refinedQuery = document.getElementById('refine-query').value.trim() || S.topic;
+  const depth        = parseInt(document.getElementById('refine-depth').value) || 10;
+
+  // Update topic if user typed something new
+  if (refinedQuery !== S.topic) {
+    S.topic = refinedQuery;
+    buildContextBar('s2', [
+      ['Topic', S.topic],
+      ['Focus areas', S.selectedAreas.map(a=>a.title).join(' · ')]
+    ]);
+  }
+
+  hideRefinePanel();
+  document.getElementById('refine-query').value = '';
+
+  // Re-run Stage 2 with new settings
+  await runStage2Fetch(depth);
 }
 
 // Call Claude via the FastAPI proxy — never calls Anthropic directly from browser
@@ -963,15 +1045,20 @@ function toggleArea(card, area, idx) {
 async function goStage2() {
   if (!S.unlockedStages.includes(2)) S.unlockedStages.push(2);
   jumpStage(2);
-
   buildContextBar('s2', [
     ['Topic', S.topic],
     ['Focus areas', S.selectedAreas.map(a=>a.title).join(' · ')]
   ]);
+  const depth = parseInt(document.getElementById('depthSelect')?.value) || 10;
+  await runStage2Fetch(depth);
+}
 
+// Shared fetch logic — called by goStage2() and runRefine()
+async function runStage2Fetch(maxResults = 10) {
   setLoader('s2', true, 'Running research pipeline…');
   showErr('s2','');
   document.getElementById('s2-results').style.display = 'none';
+  hideRefinePanel();
 
   const msgEl = document.getElementById('s2-msg');
 
@@ -979,14 +1066,11 @@ async function goStage2() {
     // ── Step 1: call the FastAPI backend (LangGraph pipeline) ──
     if (msgEl) msgEl.textContent = 'Fetching real papers via Semantic Scholar & arXiv…';
     const subAreaTitles = S.selectedAreas.map(a => a.title);
-    const backendResult = await callBackend(S.topic, subAreaTitles);
-
-    // backendResult = { query, summary, sources, elapsed_seconds }
-    // sources = [{title, authors, year, url, citations, is_open_access, source}]
+    const backendResult = await callBackend(S.topic, subAreaTitles, maxResults);
 
     if (msgEl) msgEl.textContent = 'Annotating papers with AI…';
 
-    // ── Step 2: Claude annotates the real papers for the UI ──
+    // ── Step 2: Gemini annotates the real papers for the UI ──
     const papers = backendResult.sources || [];
     let annotation = { annotations: [], methods: [], state_of_field: backendResult.summary || '' };
 
@@ -1028,7 +1112,7 @@ Return ONLY a JSON object (no markdown):
 - state_of_field grounded in these specific papers`);
     }
 
-    // ── Step 3: Merge backend sources with Claude annotations ──
+    // ── Step 3: Merge backend sources with annotations ──
     const annotationMap = {};
     (annotation.annotations || []).forEach(a => { annotationMap[a.index] = a; });
 
@@ -1042,7 +1126,7 @@ Return ONLY a JSON object (no markdown):
         citations:      p.citations,
         isOpenAccess:   p.is_open_access,
         source:         p.source,
-        abstract:       '',   // abstracts were used server-side
+        abstract:       '',
         contribution:   ann.contribution || '',
         method:         ann.method || '',
         relevance:      ann.relevance || 'medium',
@@ -1055,6 +1139,7 @@ Return ONLY a JSON object (no markdown):
       state_of_field: annotation.state_of_field || backendResult.summary || '',
       apiWorked:      papers.length > 0,
       elapsed:        backendResult.elapsed_seconds,
+      totalFetched:   papers.length,
     };
 
     renderS2(data);
@@ -1078,7 +1163,7 @@ function renderS2(data) {
   const notice = document.createElement('div');
   if (data.apiWorked) {
     notice.style.cssText = 'background:rgba(44,122,75,0.06);border:1px solid rgba(44,122,75,0.2);border-radius:8px;padding:10px 16px;margin-bottom:20px;font-size:12px;color:var(--accent2);font-family:"JetBrains Mono",monospace;display:flex;align-items:center;gap:10px';
-    notice.innerHTML = `<span>●</span> ${data.papers.length} real papers fetched live from Semantic Scholar & arXiv — all links verified and accessible`;
+    notice.innerHTML = `<span>●</span> ${data.papers.length} real papers fetched from Semantic Scholar & arXiv${data.elapsed ? ` in ${data.elapsed}s` : ''} — all links verified and accessible`;
   } else {
     notice.style.cssText = 'background:rgba(183,134,11,0.06);border:1px solid rgba(183,134,11,0.2);border-radius:8px;padding:10px 16px;margin-bottom:20px;font-size:12px;color:var(--gold);font-family:"JetBrains Mono",monospace';
     notice.innerHTML = `⚠ Could not reach academic APIs — showing AI-generated references. Check your internet connection for live results.`;
