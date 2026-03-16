@@ -24,6 +24,9 @@ class ResearchState(TypedDict):
     # ── Metadata ───────────────────────────────────────────────
     # Structured paper metadata forwarded to the API response
     # so the frontend can render real source cards
-    sources: List[Dict[str, Any]]
+    sources:     List[Dict[str, Any]]
+
+    # How many papers to fetch — set by API request, defaults to 10
+    max_results: int
 
     logs: List[str]
