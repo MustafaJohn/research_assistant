@@ -1,3 +1,7 @@
+"""
+main.py — CLI entry point, unchanged from your original.
+Use this for local testing. For deployment use api.py instead.
+"""
 
 from orchestration.graph import build_graph
 
@@ -11,13 +15,24 @@ while True:
         break
 
     result = graph.invoke({
-        "query": q,
-        "fetched_docs": [],
-        "vector_results": [],
-        "graph_results": [],
-        "final_context": "",
-        "next_step": ""
+        "query":             q,
+        "fetched_docs":      [],
+        "vector_results":    [],
+        "graph_results":     [],
+        "final_context":     "",
+        "next_step":         "",
+        "analysis_decision": "",
+        "sources":           [],
+        "max_results":       10,
+        "logs":              [],
     })
 
     print("\nFINAL ANSWER:\n")
     print(result["final_context"])
+
+    if result.get("sources"):
+        print("\nSOURCES:")
+        for s in result["sources"]:
+            oa = " [OPEN ACCESS]" if s.get("is_open_access") else ""
+            print(f"  - {s['title']} ({s.get('authors','')}, {s.get('year','')}) {oa}")
+            print(f"    {s['url']}")
