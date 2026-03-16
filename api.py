@@ -61,8 +61,9 @@ if frontend_path.exists():
 # ─────────────────────────────────────────────────────────────
 
 class ResearchRequest(BaseModel):
-    query:     str       = Field(..., min_length=3, max_length=500)
-    sub_areas: list[str] = Field(default_factory=list)
+    query:       str       = Field(..., min_length=3, max_length=500)
+    sub_areas:   list[str] = Field(default_factory=list)
+    max_results: int       = Field(default=10, ge=5, le=25)
 
 class SourceItem(BaseModel):
     title:          str
@@ -161,6 +162,7 @@ def run_research(req: ResearchRequest):
             "analysis_decision": "",
             "sources":           [{"title": a} for a in req.sub_areas] if req.sub_areas else [],
             "logs":              [],
+            "max_results":       req.max_results,
         }
         result = graph.invoke(initial_state)
     except Exception as exc:
