@@ -24,8 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Ordered by preference — first available and non-overloaded wins
 _MODEL_CHAIN = [
+    "gemini-3.1-pro-preview",
     "gemini-2.5-pro",
-    "gemini-1.5-flash",
+    "gemini-2.5-flash",
 ]
 
 # How long to wait before retrying the same model (seconds)
