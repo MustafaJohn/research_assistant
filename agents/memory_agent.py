@@ -1,11 +1,8 @@
 """
 agents/memory_agent.py
 
-Chunks fetched paper abstracts and stores them in vector memory.
-
-Your original logic is preserved exactly. The only change is that
-fetched_docs now contains structured paper dicts (with an "abstract" /
-"text" key) rather than raw scraped HTML, so the chunks are cleaner.
+Chunks all paper abstracts and stores them in vector memory using
+batch embedding — one model inference for all chunks combined.
 """
 
 import logging
@@ -17,25 +14,21 @@ logger = logging.getLogger(__name__)
 
 
 def memory_agent(state: ResearchState, vector_mem: VectorMemory) -> ResearchState:
-    logger.info("[memory] Storing fetched documents into memory...")
-    all_chunks = []
+    docs = state["fetched_docs"]
+    logger.info("[memory] Chunking %d papers…", len(docs))
 
-    for doc in state["fetched_docs"]:
-        # Use abstract as the text to chunk — clean, focused, no HTML noise
+    # Collect all (url, chunk_id, text) tuples across all papers
+    all_entries = []
+    for doc in docs:
         text = doc.get("abstract") or doc.get("text") or ""
         url  = doc.get("url", "unknown")
-
         if not text.strip():
             continue
+        for chunk_id, chunk_text_ in chunk_text(text):
+            all_entries.append((url, chunk_id, chunk_text_))
 
-        chunks = chunk_text(text)
-        for chunk_id, chunk_text_ in chunks:
-            all_chunks.append((url, chunk_id, chunk_text_))
-
-    logger.info("[memory] Chunked into %d segments, storing...", len(all_chunks))
-
-    for url, chunk_id, text in all_chunks:
-        vector_mem.add_chunks(url, [(chunk_id, text)])
-
-    logger.info("[memory] Vector store size: %d", vector_mem.size())
+    # Single batch embedding call for all chunks
+    stored = vector_mem.add_chunks_batch(all_entries)
+    logger.info("[memory] %d chunks stored (batch embedded), index size: %d",
+                stored, vector_mem.size())
     return state
