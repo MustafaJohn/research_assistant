@@ -551,6 +551,19 @@ body::before {
 }
 .sort-btn:hover { background: var(--paper2); color: var(--text); }
 .sort-btn.active { background: var(--ink); color: white; }
+.level-select {
+  background: var(--paper2);
+  border: 1px solid var(--ruled);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.level-select:focus { border-color: var(--accent); }
 
 @media(max-width:640px) {
   .app { padding: 32px 20px 80px 24px; }
@@ -617,6 +630,12 @@ body::before {
       <div class="input-zone">
         <input id="s1-input" type="text" placeholder="e.g. Artificial Intelligence, Climate Change, Behavioral Economics…"/>
         <div class="search-options">
+          <select id="levelSelect" class="level-select" title="Your academic level">
+            <option value="undergrad">Undergrad</option>
+            <option value="masters" selected>Masters</option>
+            <option value="phd">PhD</option>
+            <option value="industry">Industry</option>
+          </select>
           <div class="depth-wrap" title="Number of papers to fetch (5–30)">
             <span class="depth-label">Papers</span>
             <input type="number" id="depthSelect" class="depth-number" value="10" min="5" max="30" step="1"/>
@@ -651,6 +670,12 @@ body::before {
       <div class="input-zone">
         <input id="s1-fixed-input" type="text" placeholder="e.g. Federated Learning for Privacy-Preserving Healthcare AI…" onkeydown="if(event.key==='Enter') skipToLandscape()"/>
         <div class="search-options">
+          <select id="fixedLevelSelect" class="level-select" title="Your academic level">
+            <option value="undergrad">Undergrad</option>
+            <option value="masters" selected>Masters</option>
+            <option value="phd">PhD</option>
+            <option value="industry">Industry</option>
+          </select>
           <div class="depth-wrap" title="Number of papers to fetch (5–30)">
             <span class="depth-label">Papers</span>
             <input type="number" id="fixedDepthSelect" class="depth-number" value="10" min="5" max="30" step="1"/>
@@ -835,6 +860,7 @@ const S = {
   customRQ: '',
   proposal: null,
   sortBy: 'relevance',
+  userLevel: 'masters',
   unlockedStages: [1],
   currentStage: 1
 };
@@ -1028,8 +1054,9 @@ async function skipToLandscape() {
     return;
   }
 
-  // Read depth from the fixed-mode selector
+  // Read depth and level from the fixed-mode selectors
   const depth = parseInt(document.getElementById('fixedDepthSelect')?.value) || 10;
+  S.userLevel = document.getElementById('fixedLevelSelect')?.value || 'masters';
 
   // Set state as if Stage 1 completed — treat the whole topic as one "area"
   S.topic = topic;
@@ -1057,6 +1084,36 @@ async function skipToLandscape() {
   await runStage2Fetch(depth, S.sortBy);
 }
 
+// ── Level context helper — used in all stage prompts ─────────
+const LEVEL_LABELS = {
+  undergrad: "undergraduate student",
+  masters:   "Masters student",
+  phd:       "PhD researcher",
+  industry:  "industry professional",
+};
+
+const LEVEL_SCOPE = {
+  undergrad: "3-6 month undergraduate project",
+  masters:   "6-12 month Masters thesis",
+  phd:       "multi-year PhD research programme",
+  industry:  "applied industry research project",
+};
+
+const LEVEL_FEASIBILITY = {
+  undergrad: "feasible for an undergraduate with limited prior research experience",
+  masters:   "feasible for a Masters student over 6-12 months",
+  phd:       "appropriate scope for a PhD chapter or focused research contribution",
+  industry:  "practical and implementable within an industry research context",
+};
+
+function getLevelLabel()       { return LEVEL_LABELS[S.userLevel]      || LEVEL_LABELS.masters; }
+function getLevelScope()       { return LEVEL_SCOPE[S.userLevel]       || LEVEL_SCOPE.masters; }
+function getLevelFeasibility() { return LEVEL_FEASIBILITY[S.userLevel] || LEVEL_FEASIBILITY.masters; }
+function getLevelDocType() {
+  const map = { undergrad: 'Undergraduate Research Proposal', masters: 'Masters Thesis Proposal', phd: 'PhD Research Proposal', industry: 'Research & Development Proposal' };
+  return map[S.userLevel] || map.masters;
+}
+
 // ══════════════════════════════════════════════════
 // STAGE 1 — TOPIC EXPLORER
 // ══════════════════════════════════════════════════
@@ -1065,16 +1122,27 @@ async function runStage1() {
   if (!topic) return;
   S.topic = topic;
   S.selectedAreas = [];
+  S.userLevel = document.getElementById('levelSelect')?.value || 'masters';
 
   showErr('s1','');
   document.getElementById('s1-results').style.display = 'none';
   document.getElementById('s1-btn').disabled = true;
   setLoader('s1', true, 'Mapping the research landscape…');
 
+  const levelInstructions = {
+    undergrad:  'The user is an undergraduate student. Suggest accessible, well-defined sub-areas with clear scope. Avoid overly niche or technically demanding angles. Example questions should be achievable in a 3-6 month project.',
+    masters:    'The user is a Masters student. Suggest focused sub-areas with meaningful depth. Example questions should be achievable in a 6-12 month thesis.',
+    phd:        'The user is a PhD researcher. Suggest cutting-edge, specialised sub-areas at the frontier of the field. Example questions should be novel, address open problems, and be suitable for multi-year research. Assume strong prior knowledge.',
+    industry:   'The user is an industry professional. Suggest applied, practical sub-areas with real-world relevance. Example questions should focus on solving industry problems, improving processes, or evaluating technologies rather than purely theoretical contributions.',
+  };
+  const levelHint = levelInstructions[S.userLevel] || levelInstructions.masters;
+
   try {
-    const data = await callClaude(`You are a research advisor helping an undergraduate or Masters student explore a field.
+    const data = await callClaude(`You are a research advisor helping someone explore a field.
 
 Topic: "${topic}"
+User level: ${S.userLevel}
+Level guidance: ${levelHint}
 
 Return ONLY a JSON object (no markdown, no extra text):
 {
@@ -1083,7 +1151,7 @@ Return ONLY a JSON object (no markdown, no extra text):
       "title": "Sub-area name",
       "description": "2 sentences explaining this sub-area and why it matters",
       "maturity": "emerging|active|mature",
-      "example_angle": "One example of a thesis-level question in this area",
+      "example_angle": "One example research question appropriate for the user's level",
       "tags": ["keyword1", "keyword2", "keyword3"]
     }
   ]
@@ -1093,7 +1161,7 @@ Rules:
 - Exactly 6 sub-areas, meaningfully distinct
 - maturity indicates how developed the field is
 - Tags should be 2-3 word max each
-- Target audience is an undergrad/Masters student, not a PhD researcher`, 1000, 'flash');
+- Calibrate depth, scope, and example_angle strictly to the user level above`, 1000, 'flash');
 
     S.selectedAreas = [];
     renderS1(data.areas || []);
@@ -1191,10 +1259,11 @@ async function runStage2Fetch(maxResults = 10, sortBy = 'relevance') {
         `${i+1}. "${p.title}" (${p.authors || ''}, ${p.year || 'n.d.'}) — ${p.url}`
       ).join('\n');
 
-      annotation = await callClaude(`You are a research supervisor annotating real papers for a Masters student.
+      annotation = await callClaude(`You are a research supervisor annotating real papers for a ${getLevelLabel()}.
 
 Topic: "${S.topic}"
 Focus areas: ${S.selectedAreas.map(a=>a.title).join(', ')}
+User level: ${S.userLevel}
 
 Real papers fetched from OpenAlex and arXiv:
 ${paperList}
@@ -1377,12 +1446,13 @@ async function goStage3() {
   S.selectedGap = null;
 
   try {
-    const data = await callClaude(`You are a research supervisor helping a Masters student identify genuine research gaps.
+    const data = await callClaude(`You are a research supervisor helping a ${getLevelLabel()} identify genuine research gaps.
 
 Topic: "${S.topic}"
 Sub-areas of interest: ${S.selectedAreas.map(a=>a.title).join(', ')}
 State of field: ${S.landscape?.state_of_field || 'not available'}
 Key papers reviewed (real, from OpenAlex/arXiv): ${(S.landscape?.papers||[]).slice(0,6).map(p=>`"${p.title}" (${p.authors||''}, ${p.year||'n.d.'})`).join('; ')}
+User level: ${S.userLevel}
 
 Return ONLY a JSON object (no markdown):
 {
@@ -1394,7 +1464,7 @@ Return ONLY a JSON object (no markdown):
       "why_it_matters": "Why filling this gap would be a meaningful contribution",
       "evidence": "What in the existing literature points to this gap",
       "feasibility": "high|medium|low",
-      "feasibility_note": "One sentence on why this is or isn't feasible for a Masters student"
+      "feasibility_note": "One sentence on why this is or isn't feasible for a ${getLevelLabel()} (${getLevelScope()})"
     }
   ]
 }
@@ -1402,7 +1472,7 @@ Return ONLY a JSON object (no markdown):
 Rules:
 - Exactly 4 gaps, each of a different type if possible
 - Be specific — avoid vague gaps like "more research is needed"
-- Feasibility should reflect realistic scope for a 6-12 month Masters project
+- Feasibility must reflect realistic scope for a ${getLevelScope()}
 - Evidence should name specific limitations in the literature`, 1000);
 
     renderS3(data.gaps || []);
@@ -1467,12 +1537,13 @@ async function goStage4() {
   S.selectedRQ = null;
 
   try {
-    const data = await callClaude(`You are a research supervisor helping a Masters student write their research question.
+    const data = await callClaude(`You are a research supervisor helping a ${getLevelLabel()} write their research question.
 
 Topic: "${S.topic}"
 Focus areas: ${S.selectedAreas.map(a=>a.title).join(', ')}
 Research gap chosen: "${S.selectedGap?.title}" — ${S.selectedGap?.description}
 Why it matters: ${S.selectedGap?.why_it_matters}
+User level: ${S.userLevel}
 
 Return ONLY a JSON object (no markdown):
 {
@@ -1481,19 +1552,19 @@ Return ONLY a JSON object (no markdown):
       "label": "Short 2-3 word label for this angle (e.g. 'Quantitative Angle', 'Comparative Angle')",
       "question": "The full research question in proper academic form",
       "scope": "What is in and out of scope for this question",
-      "method": "Recommended methodology to answer this question",
+      "method": "Recommended methodology appropriate for a ${getLevelLabel()}",
       "contribution": "What gap in knowledge this would fill if answered",
       "difficulty": "moderate|challenging|ambitious",
-      "rationale": "One sentence on why this is a strong RQ for a Masters student"
+      "rationale": "One sentence on why this is a strong RQ for a ${getLevelLabel()} (${getLevelScope()})"
     }
   ]
 }
 
 Rules:
 - Exactly 3 questions, each approaching the gap from a genuinely different angle
-- Questions must be specific, bounded, and answerable within a Masters timeframe
+- Questions must be specific, bounded, and answerable within a ${getLevelScope()}
 - Use proper academic phrasing ("To what extent…", "How does…", "What is the relationship between…")
-- Method should be realistic for a student (no multi-year longitudinal studies)`, 1000);
+- Method must be realistic for a ${getLevelLabel()} — calibrate complexity accordingly`, 1000);
 
     renderS4(data.questions || []);
     showResults('s4');
@@ -1571,7 +1642,7 @@ async function goStage5() {
   document.getElementById('s5-results').style.display = 'none';
 
   try {
-    const data = await callClaude(`You are a research supervisor writing a thesis proposal draft for a Masters student.
+    const data = await callClaude(`You are a research supervisor writing a research proposal draft for a ${getLevelLabel()}.
 
 Topic: "${S.topic}"
 Focus areas: ${S.selectedAreas.map(a=>a.title).join(', ')}
@@ -1579,21 +1650,22 @@ Research gap: "${S.selectedGap?.title}" — ${S.selectedGap?.description}
 Research question: "${rqText}"
 Recommended method: ${S.selectedRQ?.method || 'not specified'}
 Expected contribution: ${S.selectedRQ?.contribution || 'not specified'}
+User level: ${S.userLevel}
 Existing literature (real papers): ${(S.landscape?.papers||[]).slice(0,4).map(p=>`"${p.title}" (${p.authors||''}, ${p.year||'n.d.'}) — ${p.url}`).join('\n')}
 
 Return ONLY a JSON object (no markdown):
 {
-  "proposal_title": "A concise, specific, academic-sounding working title for the thesis",
+  "proposal_title": "A concise, specific, academic-sounding working title",
   "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
   "sections": {
     "background": "3-4 sentences: context, why this field matters, and what prompted the focus",
     "problem_statement": "2-3 sentences: the specific gap or problem being addressed",
     "research_question": "The research question, stated clearly",
     "objectives": ["objective 1", "objective 2", "objective 3"],
-    "methodology": "3-4 sentences: proposed approach, data sources, analysis methods, and justification",
+    "methodology": "3-4 sentences: proposed approach, data sources, analysis methods, and justification — appropriate for a ${getLevelLabel()}",
     "expected_contributions": "2-3 sentences: what new knowledge this will add and who will benefit",
     "limitations": "2 sentences: scope boundaries and acknowledged constraints",
-    "timeline_note": "1 sentence rough estimate of timeline for a Masters project"
+    "timeline_note": "1 sentence rough estimate of timeline for a ${getLevelScope()}"
   }
 }`, 1000);
 
@@ -1618,7 +1690,7 @@ function renderS5(data) {
     <div class="proposal-meta">
       <span>Working Title</span>
       <span>·</span>
-      <span>Masters Thesis Proposal</span>
+      <span>${getLevelProposalType()}</span>
       <span>·</span>
       <span>${new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</span>
     </div>
@@ -1683,7 +1755,7 @@ function proposalToText() {
   if (!S.proposal) return '';
   const sec = S.proposal.sections || {};
   return `# ${S.proposal.proposal_title}
-Masters Thesis Proposal · ${new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'})}
+${getLevelProposalType()} · ${new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'})}
 Keywords: ${(S.proposal.keywords||[]).join(', ')}
 
 ## Background & Motivation
@@ -1739,7 +1811,8 @@ function exportProposal(fmt) {
 function startOver() {
   S.topic = ''; S.selectedAreas = []; S.landscape = null;
   S.selectedGap = null; S.selectedRQ = null; S.customRQ = '';
-  S.proposal = null; S.unlockedStages = [1]; S.currentStage = 1;
+  S.proposal = null; S.sortBy = 'relevance'; S.userLevel = 'masters';
+  S.unlockedStages = [1]; S.currentStage = 1;
   document.getElementById('s1-input').value = '';
   document.getElementById('s1-fixed-input').value = '';
   document.getElementById('s1-results').style.display = 'none';
