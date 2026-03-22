@@ -51,12 +51,12 @@ def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "relevance") -> l
                 "search":   query,
                 "filter":   "has_abstract:true",
                 "sort":     sort_param,
-                "per-page": limit,
+                #"per-page": limit,
                 "select":   "id,title,abstract_inverted_index,authorships,publication_year,"
                             "cited_by_count,open_access,doi,primary_location",
             },
             headers=_HEADERS,
-            timeout=15,
+            timeout=20,
         )
         resp.raise_for_status()
         works = resp.json().get("results", [])
