@@ -1,14 +1,11 @@
 """
 agents/analyst.py
 
-Retrieves relevant chunks from vector memory and decides whether
-the context is sufficient to proceed to summarization.
+Retrieves relevant chunks from vector memory using semantic search
+and assembles context for the summarizer.
 
-Changes from original:
-  - Thresholds tuned for real paper abstracts (shorter, denser than scraped HTML)
-  - Cleaner decision logic with explicit logging
-  - context_builder step is bypassed — analyst assembles context directly
-    (context_builder still exists in the graph for future use)
+RAG is preserved but lightweight — vector search over a small corpus
+(10-20 papers) is near-instant after batch embedding is done.
 """
 
 import logging
@@ -17,42 +14,36 @@ from memory.vector_memory import VectorMemory
 
 logger = logging.getLogger(__name__)
 
-# With real abstracts these thresholds are intentionally lower —
-# a single high-quality abstract chunk is worth 10 scraped nav-menu chunks.
-MIN_VECTOR_HITS = 3
-MIN_AVG_SCORE   = 0.30
+MIN_HITS      = 3
+MIN_AVG_SCORE = 0.25
 
 
 def analyst_agent(state: ResearchState, vector_mem: VectorMemory) -> ResearchState:
     query = state["query"]
 
-    vector_hits = vector_mem.search(query, k=10)
-    logger.info("[analyst] Retrieved %d vector hits", len(vector_hits))
+    vector_hits = vector_mem.search(query, k=12)
+    logger.info("[analyst] %d vector hits, avg score: %.4f",
+                len(vector_hits),
+                sum(v["score"] for v in vector_hits) / max(len(vector_hits), 1))
+
     state["vector_results"] = vector_hits
 
-    if not vector_hits:
-        logger.warning("[analyst] No vector hits — flagging need_more_info")
-        state["analysis_decision"] = "need_more_info"
+    if len(vector_hits) < MIN_HITS:
+        logger.warning("[analyst] Insufficient hits — using all fetched docs as fallback")
+        # Fallback: use all paper abstracts directly
+        context_blocks = [
+            f"[SOURCE: {p['url']}]\n{p.get('abstract') or p.get('text', '')}"
+            for p in state.get("fetched_docs", [])
+        ]
+        state["final_context"]     = "\n\n".join(context_blocks)
+        state["analysis_decision"] = "ready"
         return state
 
     avg_score = sum(v["score"] for v in vector_hits) / len(vector_hits)
-    logger.info("[analyst] Avg similarity score: %.4f", avg_score)
+    if avg_score < MIN_AVG_SCORE:
+        logger.warning("[analyst] Low avg score %.4f — proceeding anyway", avg_score)
 
-    if len(vector_hits) < MIN_VECTOR_HITS or avg_score < MIN_AVG_SCORE:
-        logger.warning(
-            "[analyst] Insufficient hits (%d) or low avg score (%.4f) — need_more_info",
-            len(vector_hits), avg_score,
-        )
-        state["analysis_decision"] = "need_more_info"
-        return state
-
+    context_blocks = [f"[SOURCE: {v['url']}]\n{v['chunk']}" for v in vector_hits]
+    state["final_context"]     = "\n\n".join(context_blocks)
     state["analysis_decision"] = "ready"
-
-    # Assemble context: top chunks with their source URLs
-    context_blocks = []
-    for v in vector_hits:
-        context_blocks.append(f"[SOURCE: {v['url']}]\n{v['chunk']}")
-
-    state["final_context"] = "\n\n".join(context_blocks)
-    logger.info("[analyst] Context assembled — ready for summarization")
     return state
