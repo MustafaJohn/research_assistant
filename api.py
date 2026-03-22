@@ -17,6 +17,7 @@ Deploy:
 import os
 import logging
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 try:
@@ -36,10 +37,52 @@ from orchestration.graph import build_graph
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# ─────────────────────────────────────────────────────────────
+# Startup — preload heavy modules so first request is instant
+# ─────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Runs once on server startup before accepting any requests.
+    Preloads the fastembed model and warms up the Gemini client
+    so the first user request doesn't pay the cold-start penalty.
+    """
+    logger.info("=== Research Agent starting up ===")
+    t0 = time.time()
+
+    # 1. Preload fastembed embedding model
+    # This downloads BAAI/bge-small-en-v1.5 (~25MB) on first run,
+    # then loads it into memory on every subsequent start.
+    try:
+        from memory.vector_memory import VectorMemory
+        _warmup_mem = VectorMemory()
+        _warmup_mem._embed("warmup")   # triggers model load
+        logger.info("✓ Embedding model loaded (%.1fs)", time.time() - t0)
+    except Exception as e:
+        logger.warning("Embedding model preload failed: %s", e)
+
+    # 2. Warm up Gemini client — validates API key and establishes connection
+    try:
+        from tools.call_llm import call_llm
+        call_llm("Reply with only the word: ready", model="gemini-2.0-flash")
+        logger.info("✓ Gemini client warmed up (%.1fs)", time.time() - t0)
+    except Exception as e:
+        logger.warning("Gemini warmup failed (non-fatal): %s", e)
+
+    logger.info("=== Startup complete in %.1fs — ready for requests ===", time.time() - t0)
+
+    yield   # server is now running
+
+    logger.info("=== Research Agent shutting down ===")
+
+
 app = FastAPI(
     title="Mini Research Agent API",
     description="Multi-agent academic research assistant",
     version="3.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -107,8 +150,8 @@ def serve_frontend():
 def llm_proxy(req: LLMProxyRequest):
     """
     Proxy all frontend LLM calls through Gemini.
-    model="flash" → gemini-2.5-flash  (Stage 1 topic exploration)
-    model="pro"   → gemini-3.1-pro-preview    (Stages 2–5, academic tasks)
+    model="flash" → gemini-2.0-flash  (Stage 1 topic exploration)
+    model="pro"   → gemini-2.5-pro    (Stages 2–5, academic tasks)
     Falls back to the other model if the primary 503s.
     """
     if not os.environ.get("GEMINI_API_KEY"):
@@ -118,10 +161,10 @@ def llm_proxy(req: LLMProxyRequest):
         from tools.call_llm import call_llm
         # Map "flash"/"pro" shorthand to actual model names
         model_map = {
-            "flash": "gemini-2.5-flash",
-            "pro":   "gemini-3.1-pro-preview",
+            "flash": "gemini-2.0-flash",
+            "pro":   "gemini-2.5-pro",
         }
-        model_name = model_map.get(req.model, "gemini-3.1-pro-preview")
+        model_name = model_map.get(req.model, "gemini-2.5-pro")
         text = call_llm(req.prompt, model=model_name)
         return {"content": [{"type": "text", "text": text}]}
 
