@@ -10,8 +10,8 @@ class ResearchState(TypedDict):
     fetched_docs: List[Dict[str, Any]]
 
     # ── Memory / retrieval ─────────────────────────────────────
-    vector_results: List[Dict[str, Any]]
-    graph_results:  List[Dict[str, Any]]
+    vector_results: List[Dict[str, Any]]   # [{score, url, chunk}]
+    graph_results:  List[Dict[str, Any]]   # reserved
 
     # ── Assembled context string passed to LLM ─────────────────
     final_context: str
