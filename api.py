@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     # 2. Warm up Gemini client — validates API key and establishes connection
     try:
         from tools.call_llm import call_llm
-        call_llm("Reply with only the word: ready", model="gemini-2.0-flash")
+        call_llm("Reply with only the word: ready", model="gemini-2.5-flash")
         logger.info("✓ Gemini client warmed up (%.1fs)", time.time() - t0)
     except Exception as e:
         logger.warning("Gemini warmup failed (non-fatal): %s", e)
