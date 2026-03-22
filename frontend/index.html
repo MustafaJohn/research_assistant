@@ -1109,6 +1109,15 @@ const LEVEL_FEASIBILITY = {
 function getLevelLabel()       { return LEVEL_LABELS[S.userLevel]      || LEVEL_LABELS.masters; }
 function getLevelScope()       { return LEVEL_SCOPE[S.userLevel]       || LEVEL_SCOPE.masters; }
 function getLevelFeasibility() { return LEVEL_FEASIBILITY[S.userLevel] || LEVEL_FEASIBILITY.masters; }
+function getLevelProposalType() {
+  const map = {
+    undergrad: 'Undergraduate Research Proposal',
+    masters:   'Masters Thesis Proposal',
+    phd:       'PhD Research Proposal',
+    industry:  'Research & Development Proposal',
+  };
+  return map[S.userLevel] || map.masters;
+}
 function getLevelDocType() {
   const map = { undergrad: 'Undergraduate Research Proposal', masters: 'Masters Thesis Proposal', phd: 'PhD Research Proposal', industry: 'Research & Development Proposal' };
   return map[S.userLevel] || map.masters;
