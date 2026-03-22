@@ -118,8 +118,8 @@ def llm_proxy(req: LLMProxyRequest):
         from tools.call_llm import call_llm
         # Map "flash"/"pro" shorthand to actual model names
         model_map = {
-            "flash": "gemini-2.0-flash",
-            "pro":   "gemini-2.5-pro",
+            "flash": "gemini-2.5-flash",
+            "pro":   "gemini-3.1-pro",
         }
         model_name = model_map.get(req.model, "gemini-2.5-pro")
         text = call_llm(req.prompt, model=model_name)
