@@ -1,18 +1,19 @@
 """
 tools/fetch_web.py
 
-Replaces DuckDuckGo + BeautifulSoup with two purpose-built academic APIs:
+Academic paper fetcher using OpenAlex + arXiv.
 
-  • Semantic Scholar  — 200 M+ papers, abstracts, citation counts, open-access PDFs
-  • arXiv             — open-access preprints, always freely accessible
+Semantic Scholar was dropped — its shared IPs are banned on Render's free tier.
+OpenAlex (250M+ scholarly works, free, no auth) replaces it as the primary source.
+arXiv covers preprints and CS/ML/physics where OpenAlex may lag.
 
-Both are free, require no API key, and return structured JSON/Atom data
-instead of HTML pages that may be paywalled or return 404.
+Both sources run in parallel via ThreadPoolExecutor.
 """
 
+import re
 import time
 import logging
-import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 import requests
@@ -20,65 +21,101 @@ import feedparser
 
 logger = logging.getLogger(__name__)
 
-SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-ARXIV_URL            = "https://export.arxiv.org/api/query"
+OPENALEX_URL = "https://api.openalex.org/works"
+ARXIV_URL    = "https://export.arxiv.org/api/query"
 
 _HEADERS = {
     "Accept":     "application/json",
-    "User-Agent": "mini-research-agent/2.0 (academic research tool)",
+    "User-Agent": "mini-research-agent/3.0 (academic research tool; mailto:research@example.com)",
+}
+
+_OA_SORT = {
+    "relevance": "relevance_score:desc",
+    "recent":    "publication_year:desc",
+    "cited":     "cited_by_count:desc",
+}
+
+_ARXIV_SORT = {
+    "relevance": ("relevance",     "descending"),
+    "recent":    ("submittedDate", "descending"),
+    "cited":     ("relevance",     "descending"),
 }
 
 
-# ─────────────────────────────────────────────────────────────
-# Semantic Scholar
-# ─────────────────────────────────────────────────────────────
-
-def _fetch_semantic_scholar(query: str, limit: int = 6) -> list[dict]:
-    fields = "title,abstract,authors,year,citationCount,openAccessPdf,externalIds,url"
+def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "relevance") -> list[dict]:
+    sort_param = _OA_SORT.get(sort_by, "relevance_score:desc")
     try:
         resp = requests.get(
-            SEMANTIC_SCHOLAR_URL,
-            params={"query": query, "fields": fields, "limit": limit},
+            OPENALEX_URL,
+            params={
+                "search":   query,
+                "filter":   "has_abstract:true",
+                "sort":     sort_param,
+                "per-page": limit,
+                "select":   "id,title,abstract_inverted_index,authorships,publication_year,"
+                            "cited_by_count,open_access,doi,primary_location",
+            },
             headers=_HEADERS,
-            timeout=12,
+            timeout=15,
         )
         resp.raise_for_status()
-        papers = resp.json().get("data", [])
+        works = resp.json().get("results", [])
     except requests.exceptions.Timeout:
-        logger.warning("Semantic Scholar timed out for: %s", query)
+        logger.warning("OpenAlex timed out for: %s", query)
         return []
     except requests.exceptions.RequestException as exc:
-        logger.warning("Semantic Scholar error: %s", exc)
+        logger.warning("OpenAlex error: %s", exc)
         return []
 
     results = []
-    for p in papers:
-        if not p.get("title") or not p.get("abstract"):
+    for w in works:
+        title    = w.get("title") or ""
+        abstract = _reconstruct_abstract(w.get("abstract_inverted_index"))
+        if not title or not abstract:
             continue
-        open_pdf = (p.get("openAccessPdf") or {})
-        url      = open_pdf.get("url") or f"https://www.semanticscholar.org/paper/{p.get('paperId','')}"
+
+        authors = ", ".join(
+            a.get("author", {}).get("display_name", "")
+            for a in (w.get("authorships") or [])[:3]
+            if a.get("author", {}).get("display_name")
+        )
+
+        doi = w.get("doi", "")
+        oa  = w.get("open_access", {})
+        url = oa.get("oa_url") or (f"https://doi.org/{doi}" if doi else "") or w.get("id", "")
+        is_open = bool(oa.get("is_oa"))
+
         results.append({
-            "source":         "semantic_scholar",
-            "title":          p["title"],
-            "authors":        ", ".join(a["name"] for a in (p.get("authors") or [])[:3]),
-            "year":           p.get("year"),
-            "abstract":       p["abstract"],
-            "citations":      p.get("citationCount", 0),
+            "source":         "openalex",
+            "title":          title,
+            "authors":        authors,
+            "year":           w.get("publication_year"),
+            "abstract":       abstract,
+            "citations":      w.get("cited_by_count", 0),
             "url":            url,
-            "is_open_access": bool(open_pdf.get("url")),
-            "doi":            (p.get("externalIds") or {}).get("DOI"),
-            "arxiv_id":       (p.get("externalIds") or {}).get("ArXiv"),
-            # text field for backwards-compat with memory_agent chunking
-            "text":           p["abstract"],
+            "is_open_access": is_open,
+            "doi":            doi or None,
+            "arxiv_id":       None,
+            "text":           abstract,
         })
     return results
 
 
-# ─────────────────────────────────────────────────────────────
-# arXiv
-# ─────────────────────────────────────────────────────────────
+def _reconstruct_abstract(inverted_index: dict | None) -> str:
+    if not inverted_index:
+        return ""
+    try:
+        positions = {}
+        for word, pos_list in inverted_index.items():
+            for pos in pos_list:
+                positions[pos] = word
+        return " ".join(positions[i] for i in sorted(positions))
+    except Exception:
+        return ""
 
-def _fetch_arxiv(query: str, limit: int = 5) -> list[dict]:
+
+def _fetch_arxiv(query: str, limit: int = 5, sort_by: str = "relevance") -> list[dict]:
+    sort_by_param, sort_order = _ARXIV_SORT.get(sort_by, ("relevance", "descending"))
     try:
         resp = requests.get(
             ARXIV_URL,
@@ -86,8 +123,8 @@ def _fetch_arxiv(query: str, limit: int = 5) -> list[dict]:
                 "search_query": f"all:{query}",
                 "start":        0,
                 "max_results":  limit,
-                "sortBy":       "relevance",
-                "sortOrder":    "descending",
+                "sortBy":       sort_by_param,
+                "sortOrder":    sort_order,
             },
             timeout=12,
         )
@@ -105,7 +142,9 @@ def _fetch_arxiv(query: str, limit: int = 5) -> list[dict]:
         if not title or not abstract or not arxiv_id:
             continue
 
-        authors   = ", ".join(getattr(a, "name", "") for a in getattr(entry, "authors", [])[:3])
+        authors   = ", ".join(
+            getattr(a, "name", "") for a in getattr(entry, "authors", [])[:3]
+        )
         published = getattr(entry, "published", "")
         year      = int(published[:4]) if published else None
 
@@ -125,95 +164,79 @@ def _fetch_arxiv(query: str, limit: int = 5) -> list[dict]:
     return results
 
 
-# ─────────────────────────────────────────────────────────────
-# Merge + deduplicate
-# ─────────────────────────────────────────────────────────────
-
 def _normalise(title: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", title.lower()).strip()[:80]
 
 
-def _merge_and_rank(ss: list, arxiv: list) -> list[dict]:
+def _merge_and_rank(oa: list, arxiv: list, sort_by: str = "relevance") -> list[dict]:
     seen, merged = set(), []
-    for paper in ss + arxiv:
+    for paper in oa + arxiv:
         key = _normalise(paper["title"])
         if key in seen or len(paper["title"]) < 10:
             continue
         seen.add(key)
         merged.append(paper)
 
-    merged.sort(key=lambda p: (
-        not p["is_open_access"],
-        -(p["citations"] or -1),
-    ))
+    if sort_by == "cited":
+        merged.sort(key=lambda p: -(p["citations"] or -1))
+    elif sort_by == "recent":
+        merged.sort(key=lambda p: -(p["year"] or 0))
+    else:
+        merged.sort(key=lambda p: (not p["is_open_access"], -(p["citations"] or -1)))
+
     return merged
 
-
-# ─────────────────────────────────────────────────────────────
-# Public entrypoint  — called by researcher.py
-# ─────────────────────────────────────────────────────────────
 
 def fetch_papers(
     topic:       str,
     sub_areas:   Optional[list[str]] = None,
     max_results: int = 10,
+    sort_by:     str = "relevance",
 ) -> dict:
-    """
-    Fetch real academic papers for a research topic.
-
-    Args:
-        topic:       Broad research topic string
-        sub_areas:   Optional sub-area keywords (from Stage 1 exploration)
-        max_results: Cap on returned papers after merging both sources
-
-    Returns:
-        {
-            "papers":      list[dict],   # merged, ranked paper dicts
-            "api_worked":  bool,
-            "sources_used": list[str],
-        }
-    """
     queries = list(dict.fromkeys(
         [topic] + [f"{topic} {a}" for a in (sub_areas or [])[:3]]
     ))[:4]
 
-    all_ss, all_arxiv, sources_used = [], [], []
+    per_query_limit = max(5, max_results // max(len(queries), 1) + 2)
 
-    for i, query in enumerate(queries):
-        if i > 0:
-            time.sleep(0.3)   # polite rate-limiting
+    all_oa, all_arxiv = [], []
 
-        ss = _fetch_semantic_scholar(query, limit=5)
-        if ss:
-            all_ss.extend(ss)
-            if "semantic_scholar" not in sources_used:
-                sources_used.append("semantic_scholar")
+    def fetch_oa_query(q):
+        return _fetch_openalex(q, limit=per_query_limit, sort_by=sort_by)
 
-        if i < 2:
-            ax = _fetch_arxiv(query, limit=4)
-            if ax:
-                all_arxiv.extend(ax)
-                if "arxiv" not in sources_used:
-                    sources_used.append("arxiv")
+    def fetch_arxiv_query(q):
+        return _fetch_arxiv(q, limit=per_query_limit, sort_by=sort_by)
 
-    papers = _merge_and_rank(all_ss, all_arxiv)[:max_results]
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        oa_futures    = {pool.submit(fetch_oa_query, q): q for q in queries}
+        arxiv_futures = {pool.submit(fetch_arxiv_query, q): q for q in queries[:2]}
+
+        for future in as_completed(oa_futures):
+            try:
+                all_oa.extend(future.result())
+            except Exception as exc:
+                logger.warning("OpenAlex future failed: %s", exc)
+
+        for future in as_completed(arxiv_futures):
+            try:
+                all_arxiv.extend(future.result())
+            except Exception as exc:
+                logger.warning("arXiv future failed: %s", exc)
+
+    sources_used = []
+    if all_oa:    sources_used.append("openalex")
+    if all_arxiv: sources_used.append("arxiv")
+
+    papers = _merge_and_rank(all_oa, all_arxiv, sort_by)[:max_results]
 
     return {
-        "papers":      papers,
-        "api_worked":  len(papers) > 0,
+        "papers":       papers,
+        "api_worked":   len(papers) > 0,
         "sources_used": sources_used,
     }
 
 
-# ─────────────────────────────────────────────────────────────
-# LLM context formatter  — called by summarizer / analyst
-# ─────────────────────────────────────────────────────────────
-
 def papers_to_llm_context(papers: list[dict], max_abstract_chars: int = 400) -> str:
-    """
-    Format paper list into a clean numbered string for LLM prompts.
-    Keeps each abstract short to stay within context limits.
-    """
     if not papers:
         return "No papers could be fetched from academic APIs."
 
@@ -234,14 +257,9 @@ def papers_to_llm_context(papers: list[dict], max_abstract_chars: int = 400) -> 
     return "\n\n".join(lines)
 
 
-# ─────────────────────────────────────────────────────────────
-# Quick standalone test
-# ─────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-    import json
     logging.basicConfig(level=logging.INFO)
-    result = fetch_papers("Financial Technology", sub_areas=["blockchain", "machine learning"])
+    result = fetch_papers("Financial Technology", sub_areas=["blockchain"], sort_by="cited")
     print(f"API worked: {result['api_worked']}")
     print(f"Sources:    {result['sources_used']}")
     print(f"Papers:     {len(result['papers'])}\n")
