@@ -1,15 +1,8 @@
 """
 agents/summarizer.py
 
-Calls Gemini with a grounded prompt that includes:
-  - The user's research query
-  - Real paper abstracts (from vector retrieval)
-  - Structured paper metadata (titles, authors, years, URLs)
-
-Changes from original:
-  - Prompt is grounded in real paper metadata — no hallucinated citations
-  - Retry logic cleaned up: max 3 attempts with exponential backoff
-  - Sources appended to output so the frontend can render real citation cards
+Uses RAG context (from analyst) plus real paper metadata.
+Uses Pro model — this is the heavy academic task.
 """
 
 import logging
@@ -19,59 +12,50 @@ from tools.call_llm import call_llm
 from tools.fetch_web import papers_to_llm_context
 from orchestration.state import ResearchState
 
-logger = logging.getLogger(__name__)
-
-MAX_RETRIES = 3
+logger    = logging.getLogger(__name__)
+MAX_RETRY = 3
 
 
 def summarizer_agent(state: ResearchState) -> ResearchState:
-    query   = state["query"]
-    context = state["final_context"]
-    sources = state.get("sources", [])
+    query         = state["query"]
+    rag_context   = state.get("final_context", "")
+    papers        = state.get("fetched_docs", [])
+    paper_context = papers_to_llm_context(papers, max_abstract_chars=300)
 
-    # Build a rich paper reference block so Gemini can cite real works
-    paper_refs = papers_to_llm_context(
-        state.get("fetched_docs", []),
-        max_abstract_chars=300,
-    )
-
-    prompt = f"""You are a research advisor helping a student identify potential research areas.
+    prompt = f"""You are a research advisor identifying potential research areas.
 
 Research Topic: {query}
 
-Real academic papers retrieved on this topic:
-{paper_refs}
+Real academic papers retrieved:
+{paper_context}
 
-Relevant context from those papers:
-{context}
+Relevant context retrieved via semantic search:
+{rag_context}
 
-Based on the above real papers and context, identify 5-7 distinct research areas or directions
-that a Masters or undergraduate student could pursue. For each area:
-1. Give it a clear title
-2. Explain what it involves and why it matters (2-3 sentences)
-3. Identify what gap or open question it addresses
-4. Suggest a realistic methodology a student could use
-5. Reference at least one of the real papers above that is relevant to this area
+Based on the above, identify 5-7 distinct research areas or directions.
+For each area:
+1. Clear title
+2. What it involves and why it matters (2-3 sentences)
+3. The gap or open question it addresses
+4. A realistic methodology
+5. Reference at least one real paper from the list above
 
-Format your response clearly with numbered sections. Do not invent paper titles or authors —
-only reference the papers listed above.
+Format with numbered sections. Only reference papers listed above.
 """
 
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, MAX_RETRY + 1):
         try:
-            logger.info("[summarizer] Calling LLM (attempt %d/%d)", attempt, MAX_RETRIES)
+            logger.info("[summarizer] Calling LLM (attempt %d/%d)", attempt, MAX_RETRY)
             result = call_llm(prompt)
             state["final_context"] = result
             logger.info("[summarizer] Done.")
             return state
         except RuntimeError as exc:
             logger.warning("[summarizer] Attempt %d failed: %s", attempt, exc)
-            if attempt < MAX_RETRIES:
-                sleep(2 ** attempt)   # exponential backoff: 2s, 4s
+            if attempt < MAX_RETRY:
+                sleep(2 ** attempt)
             else:
-                logger.error("[summarizer] All %d attempts failed.", MAX_RETRIES)
                 state["final_context"] = (
-                    "Error: Could not generate research summary after multiple attempts. "
-                    "Please check your GEMINI_API_KEY and try again."
+                    "Error: Could not generate summary. Check your GEMINI_API_KEY."
                 )
     return state
