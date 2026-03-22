@@ -150,8 +150,8 @@ def serve_frontend():
 def llm_proxy(req: LLMProxyRequest):
     """
     Proxy all frontend LLM calls through Gemini.
-    model="flash" → gemini-2.0-flash  (Stage 1 topic exploration)
-    model="pro"   → gemini-2.5-pro    (Stages 2–5, academic tasks)
+    model="flash" → gemini-2.5-flash  (Stage 1 topic exploration)
+    model="pro"   → gemini-3.1-pro-preview    (Stages 2–5, academic tasks)
     Falls back to the other model if the primary 503s.
     """
     if not os.environ.get("GEMINI_API_KEY"):
@@ -161,10 +161,10 @@ def llm_proxy(req: LLMProxyRequest):
         from tools.call_llm import call_llm
         # Map "flash"/"pro" shorthand to actual model names
         model_map = {
-            "flash": "gemini-2.0-flash",
-            "pro":   "gemini-2.5-pro",
+            "flash": "gemini-2.5-flash",
+            "pro":   "gemini-3.1-pro-preview",
         }
-        model_name = model_map.get(req.model, "gemini-2.5-pro")
+        model_name = model_map.get(req.model, "gemini-3.1-pro-preview")
         text = call_llm(req.prompt, model=model_name)
         return {"content": [{"type": "text", "text": text}]}
 
