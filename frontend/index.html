@@ -260,28 +260,45 @@ body::before {
 .gap-card {
   background: white;
   border: 1.5px solid var(--ruled);
-  border-left: 4px solid var(--stage3);
   border-radius: 10px;
-  padding: 20px 22px;
-  margin-bottom: 12px;
+  padding: 20px 24px;
+  margin-bottom: 10px;
   cursor: pointer;
   transition: all 0.18s;
+  position: relative;
 }
-.gap-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.08); border-left-color: var(--stage3); }
-.gap-card.selected { background: rgba(108,52,131,0.04); border-color: var(--stage3); box-shadow: 0 0 0 3px rgba(108,52,131,0.1); }
-.gap-type {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
-  color: var(--stage3); margin-bottom: 8px;
+.gap-card:hover { border-color: var(--stage3); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+.gap-card.selected { border-color: var(--stage3); background: rgba(108,52,131,0.03); box-shadow: 0 0 0 3px rgba(108,52,131,0.08); }
+.gap-card.selected::after {
+  content: '✓ Selected';
+  position: absolute; top: 16px; right: 16px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: var(--stage3); letter-spacing: 0.06em;
 }
-.gap-card h3 { font-family: 'Lora', serif; font-size: 16px; color: var(--ink); margin-bottom: 8px; }
-.gap-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
-.gap-card .gap-why {
-  margin-top: 12px; padding: 10px 14px;
-  background: rgba(108,52,131,0.04); border-radius: 6px;
-  font-size: 12px; color: var(--text); line-height: 1.5;
+.gap-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 10px; gap: 12px;
 }
-.gap-card .gap-why strong { color: var(--stage3); font-size: 10px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; display: block; margin-bottom: 4px; }
+.gap-badges { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.gap-badge {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  padding: 3px 9px; border-radius: 4px; letter-spacing: 0.06em;
+}
+.gap-card h3 { font-family: 'Lora', serif; font-size: 16px; color: var(--ink); line-height: 1.3; }
+.gap-desc { font-size: 13px; color: var(--muted); line-height: 1.65; margin-bottom: 14px; }
+.gap-details {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.gap-detail {
+  background: var(--paper2); border-radius: 6px; padding: 10px 12px;
+}
+.gap-detail-label {
+  font-family: 'JetBrains Mono', monospace; font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--muted); margin-bottom: 4px;
+}
+.gap-detail-val { font-size: 12px; color: var(--text); line-height: 1.5; }
+@media(max-width:600px) { .gap-details { grid-template-columns: 1fr; } }
 
 /* ── RQ CARDS ── */
 .rq-card {
@@ -711,15 +728,14 @@ body::before {
       <button class="retry-btn" onclick="retryStage(2)">↺ Retry</button>
     </div>
     <div id="s2-results" style="display:none">
-      <div class="sec-label" style="margin-bottom:12px"><span class="dot" style="background:var(--stage2)"></span>Key literature & methods</div>
+      <div class="sec-label" style="margin-bottom:12px"><span class="dot" style="background:var(--stage2)"></span>Key literature</div>
       <table class="lit-table" id="s2-table">
         <thead><tr>
           <th>Relevance</th><th>Paper / Work</th><th>Contribution</th><th>Method</th>
         </tr></thead>
         <tbody id="s2-tbody"></tbody>
       </table>
-      <div class="sec-label" style="margin-bottom:12px"><span class="dot" style="background:var(--stage2)"></span>Dominant methodologies</div>
-      <div class="cards-grid" id="s2-methods"></div>
+      <div id="s2-summary-box" style="background:var(--paper2);border:1px solid var(--ruled);border-radius:10px;padding:16px 20px;margin-bottom:20px;min-height:52px"></div>
       <div class="action-row">
         <button class="btn-primary" onclick="goStage3()">Find Research Gaps →</button>
         <button class="btn-secondary" onclick="jumpStage(1)">← Back</button>
@@ -876,18 +892,32 @@ const API_BASE = '';
 // UTILITIES
 // ══════════════════════════════════════════════════
 
-// Call YOUR FastAPI backend — paper fetching + summarization
-async function callBackend(query, subAreas = [], maxResults = 10, sortBy = 'relevance') {
-  const res = await fetch(`${API_BASE}/api/research`, {
+// ── Step 1: fetch papers (fast, ~5-10s)
+async function callFetch(query, subAreas = [], maxResults = 10, sortBy = 'relevance') {
+  const res = await fetch(`${API_BASE}/api/fetch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, sub_areas: subAreas, max_results: maxResults, sort_by: sortBy })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Backend error ${res.status}`);
+    throw new Error(err.detail || `Fetch error ${res.status}`);
   }
-  return res.json();
+  return res.json(); // { query, sources, elapsed_seconds }
+}
+
+// ── Step 2: summarise papers (slower, ~20-30s) — called in background
+async function callSummarize(query, papers, ragContext = '') {
+  const res = await fetch(`${API_BASE}/api/summarize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, papers, rag_context: ragContext })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Summarize error ${res.status}`);
+  }
+  return res.json(); // { summary, elapsed_seconds }
 }
 
 // Sort toggle helpers
@@ -1242,37 +1272,33 @@ async function goStage2() {
 
 // Shared fetch logic — called by goStage2() and runRefine()
 async function runStage2Fetch(maxResults = 10, sortBy = 'relevance') {
-  setLoader('s2', true, 'Running research pipeline…');
-  showErr('s2','');
+  setLoader('s2', true, 'Fetching papers…');
+  showErr('s2', '');
   document.getElementById('s2-results').style.display = 'none';
   hideRefinePanel();
 
   const msgEl = document.getElementById('s2-msg');
 
   try {
-    if (msgEl) msgEl.textContent = 'Fetching real papers via OpenAlex & arXiv…';
+    // ── Step 1: fetch papers fast ──────────────────────────────
+    if (msgEl) msgEl.textContent = 'Fetching papers from OpenAlex & arXiv…';
     const subAreaTitles = S.selectedAreas.map(a => a.title);
-    const backendResult = await callBackend(S.topic, subAreaTitles, maxResults, sortBy);
+    const fetchResult   = await callFetch(S.topic, subAreaTitles, maxResults, sortBy);
+    const papers        = fetchResult.sources || [];
 
-    if (backendResult.warning) {
-      showErr('s2', backendResult.warning);
-    }
+    if (!papers.length) throw new Error('No papers found. Try different keywords or a broader topic.');
 
-    if (msgEl) msgEl.textContent = 'Annotating papers with AI…';
+    // ── Step 2: annotate with AI ───────────────────────────────
+    if (msgEl) msgEl.textContent = `${papers.length} papers found — annotating…`;
 
-    const papers = backendResult.sources || [];
-    let annotation = { annotations: [], methods: [], state_of_field: backendResult.summary || '' };
+    const paperList = papers.slice(0, 8).map((p, i) =>
+      `${i+1}. "${p.title}" (${p.authors || ''}, ${p.year || 'n.d.'}) — ${p.url}`
+    ).join('\n');
 
-    if (papers.length > 0) {
-      const paperList = papers.slice(0, 8).map((p, i) =>
-        `${i+1}. "${p.title}" (${p.authors || ''}, ${p.year || 'n.d.'}) — ${p.url}`
-      ).join('\n');
-
-      annotation = await callClaude(`You are a research supervisor annotating real papers for a ${getLevelLabel()}.
+    const annotation = await callClaude(`You are a research supervisor annotating real papers for a ${getLevelLabel()}.
 
 Topic: "${S.topic}"
 Focus areas: ${S.selectedAreas.map(a=>a.title).join(', ')}
-User level: ${S.userLevel}
 
 Real papers fetched from OpenAlex and arXiv:
 ${paperList}
@@ -1282,64 +1308,63 @@ Return ONLY a JSON object (no markdown):
   "annotations": [
     {
       "index": 1,
-      "contribution": "One sentence: what this paper specifically contributes to the field",
-      "method": "The primary methodology this paper uses",
+      "contribution": "One sentence: what this paper specifically contributes",
+      "method": "Primary methodology used",
       "relevance": "high|medium|low"
     }
   ],
-  "methods": [
-    {
-      "name": "Method name",
-      "description": "What it is and when used in this field",
-      "pros": "Key strength",
-      "cons": "Key limitation"
-    }
-  ],
-  "state_of_field": "2-3 sentences on current state and open questions based on these papers"
+  "state_of_field": "2-3 sentences on current state and open questions grounded in these specific papers — not generic"
 }
 - Annotate all ${Math.min(papers.length, 8)} papers
-- 3-4 methods that actually appear across these papers
-- state_of_field grounded in these specific papers`, 1000, 'pro');
-    }
+- state_of_field must reference these specific papers`, 1000, 'pro');
 
-    // ── Step 3: Merge backend sources with annotations ──
     const annotationMap = {};
     (annotation.annotations || []).forEach(a => { annotationMap[a.index] = a; });
 
     const enrichedPapers = papers.slice(0, 8).map((p, i) => {
       const ann = annotationMap[i + 1] || {};
-      return {
-        title:          p.title,
-        authors:        p.authors,
-        year:           p.year,
-        url:            p.url,
-        citations:      p.citations,
-        isOpenAccess:   p.is_open_access,
-        source:         p.source,
-        abstract:       '',
-        contribution:   ann.contribution || '',
-        method:         ann.method || '',
-        relevance:      ann.relevance || 'medium',
-      };
+      return { ...p, isOpenAccess: p.is_open_access,
+        contribution: ann.contribution || '', method: ann.method || '',
+        relevance: ann.relevance || 'medium' };
     });
 
     const data = {
       papers:         enrichedPapers,
-      methods:        annotation.methods || [],
-      state_of_field: annotation.state_of_field || backendResult.summary || '',
-      apiWorked:      papers.length > 0,
-      elapsed:        backendResult.elapsed_seconds,
-      totalFetched:   papers.length,
+      state_of_field: annotation.state_of_field || '',
+      apiWorked:      true,
+      elapsed:        fetchResult.elapsed_seconds,
     };
 
+    // ── Step 3: render papers immediately ─────────────────────
+    setLoader('s2', false);
     renderS2(data);
     showResults('s2');
     S.landscape = data;
 
+    // ── Step 4: summarize in background ───────────────────────
+    updateSummaryStatus('summarizing');
+    callSummarize(S.topic, papers, fetchResult.rag_context || '').then(result => {
+      S.landscape.summary = result.summary;
+      updateSummaryStatus('done', result.summary);
+    }).catch(err => {
+      updateSummaryStatus('error', err.message);
+    });
+
   } catch(e) {
-    showErr('s2', '⚠ ' + e.message);
-  } finally {
+    showErr('s2', e.message);
     setLoader('s2', false);
+  }
+}
+
+function updateSummaryStatus(status, text = '') {
+  const el = document.getElementById('s2-summary-box');
+  if (!el) return;
+  if (status === 'summarizing') {
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)"><div class="loader-dots" style="margin:0"><span></span><span></span><span></span></div>Generating research summary…</div>`;
+  } else if (status === 'done') {
+    el.innerHTML = `<div class="sec-label" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Research summary</div><div style="font-size:14px;line-height:1.7;color:var(--text)">${text}</div>`;
+  } else {
+    el.innerHTML = `<div style="font-size:12px;color:var(--muted);font-style:italic">Summary unavailable — ${text}</div>`;
   }
 }
 
@@ -1416,24 +1441,6 @@ function renderS2(data) {
     tbody.appendChild(tr);
   });
 
-  // Methods
-  const mg = document.getElementById('s2-methods');
-  mg.innerHTML = '';
-  (data.methods||[]).forEach((m,i) => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.style.cursor = 'default';
-    card.innerHTML = `
-      <div class="card-tag">method ${String(i+1).padStart(2,'0')}</div>
-      <h3>${m.name}</h3>
-      <p>${m.description}</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
-        <div class="rq-dim"><div class="rq-dim-label">Strength</div><div class="rq-dim-val" style="color:var(--accent2)">${m.pros}</div></div>
-        <div class="rq-dim"><div class="rq-dim-label">Limitation</div><div class="rq-dim-val" style="color:var(--accent)">${m.cons}</div></div>
-      </div>
-    `;
-    mg.appendChild(card);
-  });
 }
 
 // ══════════════════════════════════════════════════
@@ -1496,22 +1503,40 @@ Rules:
 function renderS3(gaps) {
   const container = document.getElementById('s3-gaps');
   container.innerHTML = '';
-  const feasColor = { high: 'var(--accent2)', medium: 'var(--gold)', low: 'var(--accent)' };
+
+  const feasColor = {
+    high:   { bg: 'rgba(44,122,75,0.08)',   text: 'var(--accent2)', border: 'rgba(44,122,75,0.2)'   },
+    medium: { bg: 'rgba(183,134,11,0.08)',  text: 'var(--gold)',    border: 'rgba(183,134,11,0.2)'  },
+    low:    { bg: 'rgba(192,57,43,0.08)',   text: 'var(--accent)',  border: 'rgba(192,57,43,0.2)'   },
+  };
+  const typeColor = 'rgba(108,52,131,0.08)';
+
   gaps.forEach((g, i) => {
-    const card = document.createElement('div');
+    const fc    = feasColor[g.feasibility] || feasColor.medium;
+    const card  = document.createElement('div');
     card.className = 'gap-card';
     card.innerHTML = `
-      <div class="gap-type">${g.type} gap · feasibility: <span style="color:${feasColor[g.feasibility]||'var(--muted)'}">${g.feasibility}</span></div>
-      <h3>${g.title}</h3>
-      <p>${g.description}</p>
-      <div class="gap-why">
-        <strong>Why it matters</strong>${g.why_it_matters}
+      <div class="gap-header">
+        <h3>${g.title}</h3>
+        <div class="gap-badges">
+          <span class="gap-badge" style="background:${typeColor};color:var(--stage3);border:1px solid rgba(108,52,131,0.2)">${g.type}</span>
+          <span class="gap-badge" style="background:${fc.bg};color:${fc.text};border:1px solid ${fc.border}">${g.feasibility} feasibility</span>
+        </div>
       </div>
-      <div class="gap-why" style="margin-top:8px">
-        <strong>Evidence in literature</strong>${g.evidence}
-      </div>
-      <div class="gap-why" style="margin-top:8px;border-left:2px solid ${feasColor[g.feasibility]||'var(--muted)'}">
-        <strong>Feasibility for you</strong>${g.feasibility_note}
+      <div class="gap-desc">${g.description}</div>
+      <div class="gap-details">
+        <div class="gap-detail">
+          <div class="gap-detail-label">Why it matters</div>
+          <div class="gap-detail-val">${g.why_it_matters}</div>
+        </div>
+        <div class="gap-detail">
+          <div class="gap-detail-label">Evidence in literature</div>
+          <div class="gap-detail-val">${g.evidence}</div>
+        </div>
+        <div class="gap-detail" style="grid-column:1/-1">
+          <div class="gap-detail-label">Feasibility for you</div>
+          <div class="gap-detail-val">${g.feasibility_note}</div>
+        </div>
       </div>
     `;
     card.addEventListener('click', () => selectGap(card, g));
