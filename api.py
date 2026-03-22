@@ -2,22 +2,21 @@
 api.py — FastAPI wrapper around the LangGraph research pipeline.
 
 Endpoints:
-  POST /api/research        — run the full multi-agent pipeline
-  GET  /api/health          — health check
-  GET  /                    — serves the frontend HTML
+  POST /api/research  — run the full multi-agent pipeline
+  POST /api/llm       — LLM proxy (Gemini) for frontend stages
+  GET  /api/health    — health check
+  GET  /              — serves the frontend HTML
 
 Run locally:
   uvicorn api:app --reload --port 8000
 
-Deploy (Render / Railway / Fly.io):
-  Set env var GEMINI_API_KEY, then point start command to:
-  uvicorn api:app --host 0.0.0.0 --port $PORT
+Deploy:
+  Set GEMINI_API_KEY, start command: uvicorn api:app --host 0.0.0.0 --port $PORT
 """
 
 import os
 import logging
 import time
-import json
 from pathlib import Path
 
 try:
@@ -25,6 +24,7 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Mini Research Agent API",
     description="Multi-agent academic research assistant",
-    version="2.0.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -55,13 +55,14 @@ if frontend_path.exists():
 
 
 # ─────────────────────────────────────────────────────────────
-# Request / Response models
+# Models
 # ─────────────────────────────────────────────────────────────
 
 class ResearchRequest(BaseModel):
     query:       str       = Field(..., min_length=3, max_length=500)
     sub_areas:   list[str] = Field(default_factory=list)
     max_results: int       = Field(default=10, ge=5, le=25)
+    sort_by:     str       = Field(default="relevance", pattern="^(relevance|recent|cited)$")
 
 class SourceItem(BaseModel):
     title:          str
@@ -77,10 +78,12 @@ class ResearchResponse(BaseModel):
     summary:         str
     sources:         list[SourceItem]
     elapsed_seconds: float
+    warning:         str = ""
 
 class LLMProxyRequest(BaseModel):
     prompt:     str
     max_tokens: int = 1000
+    model:      str = "pro"   # "pro" | "flash"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -89,71 +92,67 @@ class LLMProxyRequest(BaseModel):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "3.0.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def serve_frontend():
     index = frontend_path / "index.html"
     if not index.exists():
-        return HTMLResponse("<h2>Frontend not found. Place index.html in /frontend.</h2>", status_code=404)
+        return HTMLResponse("<h2>Frontend not found.</h2>", status_code=404)
     return HTMLResponse(index.read_text(encoding="utf-8"))
 
 
 @app.post("/api/llm")
 def llm_proxy(req: LLMProxyRequest):
     """
-    Proxy all frontend LLM calls through Gemini on the server.
-    Uses the fallback chain: gemini-2.5-pro → gemini-1.5-flash.
-    The browser never calls any external API directly — no CORS issues.
+    Proxy all frontend LLM calls through Gemini.
+    model="flash" → gemini-2.0-flash  (Stage 1 topic exploration)
+    model="pro"   → gemini-2.5-pro    (Stages 2–5, academic tasks)
+    Falls back to the other model if the primary 503s.
     """
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="GEMINI_API_KEY is not configured on the server.",
-        )
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
 
     try:
         from tools.call_llm import call_llm
-        text = call_llm(req.prompt)
-        # Return in the shape the frontend expects
+        # Map "flash"/"pro" shorthand to actual model names
+        model_map = {
+            "flash": "gemini-2.0-flash",
+            "pro":   "gemini-2.5-pro",
+        }
+        model_name = model_map.get(req.model, "gemini-2.5-pro")
+        text = call_llm(req.prompt, model=model_name)
         return {"content": [{"type": "text", "text": text}]}
 
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except RuntimeError as e:
-        # Clean user-facing message from call_llm
         code = getattr(e, "status_code", None)
         http_status = 503 if code in (503, 429) else 500
         raise HTTPException(status_code=http_status, detail=str(e))
     except Exception as e:
         logger.error("LLM proxy unexpected error: %s", e)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again."
-        )
+        raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
 
 
 @app.post("/api/research", response_model=ResearchResponse)
 def run_research(req: ResearchRequest):
     """
-    Run the full multi-agent pipeline for a research query.
-    Fresh VectorMemory per request — no cross-query contamination.
+    Run the full multi-agent pipeline (fetch → memory → analyse → summarise).
+    Uses Pro model for summarisation — this is the heavy academic task.
     """
     if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(
-            status_code=500,
-            detail="GEMINI_API_KEY is not configured on the server.",
-        )
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
 
-    logger.info("Research request: %s", req.query)
+    logger.info("Research request: %s (sort: %s, max: %d)", req.query, req.sort_by, req.max_results)
     t0 = time.time()
 
     try:
         graph = build_graph()
         initial_state = {
             "query":             req.query,
+            "sort_by":           req.sort_by,
             "fetched_docs":      [],
             "vector_results":    [],
             "graph_results":     [],
@@ -161,8 +160,8 @@ def run_research(req: ResearchRequest):
             "next_step":         "",
             "analysis_decision": "",
             "sources":           [{"title": a} for a in req.sub_areas] if req.sub_areas else [],
-            "logs":              [],
             "max_results":       req.max_results,
+            "logs":              [],
         }
         result = graph.invoke(initial_state)
     except Exception as exc:
@@ -172,9 +171,12 @@ def run_research(req: ResearchRequest):
     elapsed = round(time.time() - t0, 2)
     logger.info("Completed in %.2fs — %d sources", elapsed, len(result.get("sources", [])))
 
+    warning = next((l for l in result.get("logs", []) if l.startswith("⚠")), "")
+
     return ResearchResponse(
         query           = req.query,
         summary         = result.get("final_context", ""),
         sources         = result.get("sources", []),
         elapsed_seconds = elapsed,
+        warning         = warning,
     )
