@@ -193,9 +193,22 @@ def fetch_papers(
     max_results: int = 10,
     sort_by:     str = "relevance",
 ) -> dict:
-    queries = list(dict.fromkeys(
-        [topic] + [f"{topic} {a}" for a in (sub_areas or [])[:3]]
-    ))[:4]
+    """
+    Fetch real academic papers for a research topic.
+
+    Query strategy:
+      - If sub_areas provided, use them as primary queries (they are more specific)
+      - Always include the broad topic as one query for coverage
+      - Deduplicate and cap at 4 queries total
+    """
+    if sub_areas:
+        # Sub-areas are more specific — use them as primary queries
+        # Include the broad topic once for coverage
+        queries = list(dict.fromkeys(
+            sub_areas[:3] + [topic]
+        ))[:4]
+    else:
+        queries = [topic]
 
     per_query_limit = max(5, max_results // max(len(queries), 1) + 2)
 
@@ -228,6 +241,8 @@ def fetch_papers(
     if all_arxiv: sources_used.append("arxiv")
 
     papers = _merge_and_rank(all_oa, all_arxiv, sort_by)[:max_results]
+
+    logger.info("fetch_papers: queries=%s → %d papers from %s", queries, len(papers), sources_used)
 
     return {
         "papers":       papers,
