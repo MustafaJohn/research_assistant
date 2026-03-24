@@ -1,9 +1,9 @@
-faiss-cpu
 fastembed
 fastapi
 feedparser
 google-genai
 langgraph
+networkx
 numpy
 python-dotenv
 requests
