@@ -30,7 +30,7 @@ _HEADERS = {
 }
 
 _OA_SORT = {
-    "relevance": "relevance_score:desc",
+    "relevance": None,                    # omit sort — OA default relevance with filter
     "recent":    "publication_year:desc",
     "cited":     "cited_by_count:desc",
 }
@@ -43,21 +43,30 @@ _ARXIV_SORT = {
 
 
 def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "relevance") -> list[dict]:
-    sort_param = _OA_SORT.get(sort_by, "relevance_score:desc")
+    sort_param = _OA_SORT.get(sort_by)
+
+    # OpenAlex filter syntax requires commas between conditions.
+    # requests encodes commas as %2C which breaks the filter.
+    # Build the URL manually to preserve the raw comma.
+    select = ("id,title,abstract_inverted_index,authorships,publication_year,"
+              "cited_by_count,open_access,doi,primary_location")
+
+    # Encode only the query value, not the filter structure
+    from urllib.parse import quote
+    encoded_query = quote(query, safe="")
+    filter_str    = f"title_and_abstract.search:{encoded_query},has_abstract:true"
+
+    url = (
+        f"{OPENALEX_URL}"
+        f"?filter={filter_str}"
+        f"&per-page={limit}"
+        f"&select={select}"
+    )
+    if sort_param:
+        url += f"&sort={sort_param}"
+
     try:
-        resp = requests.get(
-            OPENALEX_URL,
-            params={
-                "search":   query,
-                "filter":   "has_abstract:true",
-                "sort":     sort_param,
-                #"per-page": limit,
-                "select":   "id,title,abstract_inverted_index,authorships,publication_year,"
-                            "cited_by_count,open_access,doi,primary_location",
-            },
-            headers=_HEADERS,
-            timeout=20,
-        )
+        resp = requests.get(url, headers=_HEADERS, timeout=15)
         resp.raise_for_status()
         works = resp.json().get("results", [])
     except requests.exceptions.Timeout:
