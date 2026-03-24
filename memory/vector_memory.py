@@ -3,26 +3,39 @@ import faiss
 from fastembed import TextEmbedding
 
 
+# ─────────────────────────────────────────────────────────────
+# Global model — loaded once at process startup, shared across
+# all requests. The ONNX model is stateless and thread-safe.
+# Each VectorMemory instance gets its own FAISS index.
+# ─────────────────────────────────────────────────────────────
+_EMBEDDING_MODEL: TextEmbedding | None = None
+_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+
+
+def get_model() -> TextEmbedding:
+    global _EMBEDDING_MODEL
+    if _EMBEDDING_MODEL is None:
+        _EMBEDDING_MODEL = TextEmbedding(model_name=_MODEL_NAME)
+    return _EMBEDDING_MODEL
+
+
 class VectorMemory:
     """
-    Session-scoped vector memory using FAISS IndexFlatIP (cosine similarity).
-    Uses batch embedding — all chunks embedded in one model inference call
-    instead of one call per chunk. Brings embedding time from ~8-10s to ~1-2s.
-    No disk persistence — fresh instance per request.
+    Session-scoped FAISS index.
+
+    The embedding model is shared globally (loaded once).
+    Only the index and memory list are per-request — they hold
+    the paper data for a single query and are garbage collected
+    when the request finishes.
     """
 
-    MODEL_NAME = "BAAI/bge-small-en-v1.5"
+    DIMENSION = 384
 
     def __init__(self):
-        self.model    = TextEmbedding(model_name=self.MODEL_NAME)
-        self.dimension = 384
-        self.index    = faiss.IndexFlatIP(self.dimension)
-        self.memory:  list[dict] = []   # [{id, url, chunk}]
-        self.next_id  = 0
-
-    # ─────────────────────────────────────────────
-    # Internal
-    # ─────────────────────────────────────────────
+        self.model  = get_model()           # shared — no extra RAM
+        self.index  = faiss.IndexFlatIP(self.DIMENSION)
+        self.memory: list[dict] = []
+        self.next_id = 0
 
     def _embed_batch(self, texts: list[str]) -> np.ndarray:
         """Embed multiple texts in one model inference call."""
