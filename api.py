@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     # Warm up Gemini
     try:
         from tools.call_llm import call_llm
-        call_llm("Reply with only the word: ready", model="gemini-2.0-flash")
+        call_llm("Reply with only the word: ready", model="gemini-2.5-flash")
         logger.info("✓ Gemini warmed up (%.1fs)", time.time() - t0)
     except Exception as e:
         logger.warning("Gemini warmup failed: %s", e)
@@ -274,8 +274,8 @@ def llm_proxy(req: LLMProxyRequest):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
     try:
         from tools.call_llm import call_llm
-        model_map  = {"flash": "gemini-2.0-flash", "pro": "gemini-2.5-pro"}
-        model_name = model_map.get(req.model, "gemini-2.5-pro")
+        model_map  = {"flash": "gemini-2.5-flash", "pro": "gemini-3.1-pro-preview"}
+        model_name = model_map.get(req.model, "gemini-3.1-pro-preview")
         text       = call_llm(req.prompt, model=model_name)
         return {"content": [{"type": "text", "text": text}]}
     except ValueError as e:
