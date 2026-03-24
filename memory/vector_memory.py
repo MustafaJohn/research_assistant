@@ -76,10 +76,8 @@ class VectorMemory:
     def add_chunks_batch(self, entries: list[tuple[str, int, str]]) -> int:
         """
         Batch-embed and store chunks.
-        Args:
-            entries: list of (url, chunk_id, chunk_text)
-        Returns:
-            Number of chunks stored (duplicates skipped).
+        Duplicate check runs against the pre-existing corpus only,
+        building the matrix once for the whole batch — O(n) not O(n²).
         """
         if not entries:
             return 0
@@ -87,11 +85,14 @@ class VectorMemory:
         texts = [e[2] for e in entries]
         embs  = self._embed_batch(texts)    # one model inference call
 
+        # Build existing corpus matrix once — before processing any new chunk
+        existing_mat = np.stack(self._vecs) if self._vecs else None  # (N, 384) or None
+
         stored = 0
         for (url, _chunk_id, chunk_text), emb in zip(entries, embs):
-            # Duplicate check — cosine similarity > 0.92
-            if self._vecs:
-                scores = self._cosine_scores(emb)
+            # Check against existing corpus only (not other chunks in this batch)
+            if existing_mat is not None:
+                scores = existing_mat @ emb     # (N,) — no matrix rebuild
                 if scores.max() > 0.92:
                     continue
             self._vecs.append(emb)
