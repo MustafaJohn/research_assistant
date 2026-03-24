@@ -47,13 +47,11 @@ async def lifespan(app: FastAPI):
     logger.info("=== Research Agent starting up ===")
     t0 = time.time()
 
-    # Preload embedding model once — all requests share this instance
+    # Preload embedding model once — all requests share this singleton
     try:
         from memory.vector_memory import get_model
         model = get_model()
-        # Warmup inference to force ONNX compilation
-        import numpy as np
-        list(model.embed(["warmup"]))
+        list(model.embed(["warmup"]))   # triggers ONNX compilation
         logger.info("✓ Embedding model loaded (%.1fs)", time.time() - t0)
     except Exception as e:
         logger.warning("Embedding warmup failed: %s", e)
