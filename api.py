@@ -105,7 +105,8 @@ class SourceItem(BaseModel):
 class FetchResponse(BaseModel):
     query:           str
     sources:         list[SourceItem]
-    rag_context:     str          # assembled RAG context for /api/summarize
+    sources_used:    list[str]        # which APIs returned data
+    rag_context:     str
     elapsed_seconds: float
 
 class SummarizeRequest(BaseModel):
@@ -213,6 +214,7 @@ def fetch_endpoint(req: FetchRequest):
     return FetchResponse(
         query           = req.query,
         sources         = sources,
+        sources_used    = result["sources_used"],
         rag_context     = rag_context,
         elapsed_seconds = elapsed,
     )
