@@ -735,7 +735,6 @@ body::before {
         </tr></thead>
         <tbody id="s2-tbody"></tbody>
       </table>
-      <div id="s2-summary-box" style="background:var(--paper2);border:1px solid var(--ruled);border-radius:10px;padding:16px 20px;margin-bottom:20px;min-height:52px"></div>
       <div class="action-row">
         <button class="btn-primary" onclick="goStage3()">Find Research Gaps →</button>
         <button class="btn-secondary" onclick="jumpStage(1)">← Back</button>
@@ -1333,6 +1332,7 @@ Return ONLY a JSON object (no markdown):
       state_of_field: annotation.state_of_field || '',
       apiWorked:      true,
       elapsed:        fetchResult.elapsed_seconds,
+      sourcesUsed:    fetchResult.sources_used || [],
     };
 
     // ── Step 3: render papers immediately ─────────────────────
@@ -1341,30 +1341,9 @@ Return ONLY a JSON object (no markdown):
     showResults('s2');
     S.landscape = data;
 
-    // ── Step 4: summarize in background ───────────────────────
-    updateSummaryStatus('summarizing');
-    callSummarize(S.topic, papers, fetchResult.rag_context || '').then(result => {
-      S.landscape.summary = result.summary;
-      updateSummaryStatus('done', result.summary);
-    }).catch(err => {
-      updateSummaryStatus('error', err.message);
-    });
-
   } catch(e) {
     showErr('s2', e.message);
     setLoader('s2', false);
-  }
-}
-
-function updateSummaryStatus(status, text = '') {
-  const el = document.getElementById('s2-summary-box');
-  if (!el) return;
-  if (status === 'summarizing') {
-    el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)"><div class="loader-dots" style="margin:0"><span></span><span></span><span></span></div>Generating research summary…</div>`;
-  } else if (status === 'done') {
-    el.innerHTML = `<div class="sec-label" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Research summary</div><div style="font-size:14px;line-height:1.7;color:var(--text)">${text}</div>`;
-  } else {
-    el.innerHTML = `<div style="font-size:12px;color:var(--muted);font-style:italic">Summary unavailable — ${text}</div>`;
   }
 }
 
@@ -1377,9 +1356,9 @@ function renderS2(data) {
 
   const notice = document.createElement('div');
   if (data.apiWorked) {
-    const partial = data.papers.length < (data.totalFetched || data.papers.length + 1);
-    notice.style.cssText = `background:rgba(${partial ? '183,134,11' : '44,122,75'},0.06);border:1px solid rgba(${partial ? '183,134,11' : '44,122,75'},0.2);border-radius:8px;padding:10px 16px;margin-bottom:20px;font-size:12px;color:${partial ? 'var(--gold)' : 'var(--accent2)'};font-family:"JetBrains Mono",monospace;display:flex;align-items:center;gap:10px`;
-    notice.innerHTML = `<span>${partial ? '⚠' : '●'}</span> ${data.papers.length} papers fetched${data.elapsed ? ` in ${data.elapsed}s` : ''}${partial ? ' — OpenAlex unavailable, showing arXiv results only. Try again in a moment.' : ' from OpenAlex & arXiv — all links verified'}`;
+    notice.style.cssText = 'background:rgba(44,122,75,0.06);border:1px solid rgba(44,122,75,0.2);border-radius:8px;padding:10px 16px;margin-bottom:20px;font-size:12px;color:var(--accent2);font-family:"JetBrains Mono",monospace;display:flex;align-items:center;gap:10px';
+    const srcLabel = (data.sourcesUsed || []).join(' & ') || 'OpenAlex & arXiv';
+    notice.innerHTML = `<span>●</span> ${data.papers.length} papers fetched in ${data.elapsed || '?'}s from ${srcLabel} — all links verified`;
   } else {
     notice.style.cssText = 'background:rgba(183,134,11,0.06);border:1px solid rgba(183,134,11,0.2);border-radius:8px;padding:10px 16px;margin-bottom:20px;font-size:12px;color:var(--gold);font-family:"JetBrains Mono",monospace';
     notice.innerHTML = `⚠ Could not reach academic APIs — showing AI-generated references. Check your internet connection for live results.`;
