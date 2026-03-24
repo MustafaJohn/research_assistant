@@ -42,7 +42,7 @@ _ARXIV_SORT = {
 }
 
 
-def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "relevance") -> list[dict]:
+def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "recent") -> list[dict]:
     sort_param = _OA_SORT.get(sort_by)
 
     # OpenAlex filter syntax requires commas between conditions.
@@ -59,7 +59,7 @@ def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "relevance") -> l
     url = (
         f"{OPENALEX_URL}"
         f"?filter={filter_str}"
-        f"&per-page={limit}"
+        #f"&per-page={limit}"
         f"&select={select}"
     )
     if sort_param:
@@ -123,7 +123,7 @@ def _reconstruct_abstract(inverted_index: dict | None) -> str:
         return ""
 
 
-def _fetch_arxiv(query: str, limit: int = 5, sort_by: str = "relevance") -> list[dict]:
+def _fetch_arxiv(query: str, limit: int = 5, sort_by: str = "recent") -> list[dict]:
     sort_by_param, sort_order = _ARXIV_SORT.get(sort_by, ("relevance", "descending"))
     try:
         resp = requests.get(
@@ -131,7 +131,7 @@ def _fetch_arxiv(query: str, limit: int = 5, sort_by: str = "relevance") -> list
             params={
                 "search_query": f"all:{query}",
                 "start":        0,
-                "max_results":  limit,
+                #"max_results":  limit,
                 "sortBy":       sort_by_param,
                 "sortOrder":    sort_order,
             },
