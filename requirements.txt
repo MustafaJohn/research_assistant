@@ -9,4 +9,4 @@ python-dotenv
 requests
 uvicorn[standard]
 python-multipart
-faiss
+faiss-cpu
