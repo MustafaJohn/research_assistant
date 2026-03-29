@@ -59,7 +59,7 @@ def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "recent") -> list
     url = (
         f"{OPENALEX_URL}"
         f"?filter={filter_str}"
-        #f"&per-page={limit}"
+        f"&per-page={limit}"
         f"&select={select}"
     )
     if sort_param:
@@ -131,7 +131,7 @@ def _fetch_arxiv(query: str, limit: int = 5, sort_by: str = "recent") -> list[di
             params={
                 "search_query": f"all:{query}",
                 "start":        0,
-                #"max_results":  limit,
+                "max_results":  limit,
                 "sortBy":       sort_by_param,
                 "sortOrder":    sort_order,
             },
