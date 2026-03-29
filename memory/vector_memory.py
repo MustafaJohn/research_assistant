@@ -29,6 +29,7 @@ class VectorMemory:
     when the request finishes.
     """
 
+    MODEL_NAME = "BAAI/bge-small-en-v1.5"
     DIMENSION = 384
 
     def __init__(self):
@@ -55,11 +56,7 @@ class VectorMemory:
         scores, _ = self.index.search(emb, 1)
         return float(scores[0][0]) > threshold
 
-    # ─────────────────────────────────────────────
-    # Public API
-    # ─────────────────────────────────────────────
-
-    def add_chunks_batch(self, entries: list[tuple[str, int, str]]) -> int:
+    def add_chunks(self, url: str, chunks: list[tuple[int, str]]) -> list[tuple[int, str]]:
         """
         Add multiple chunks in one batch embedding call.
 
@@ -82,9 +79,8 @@ class VectorMemory:
                 continue
             self.index.add(emb_2d)
             self.memory.append({"id": self.next_id, "url": url, "chunk": chunk_text})
+            stored.append((self.next_id, chunk_text))
             self.next_id += 1
-            stored += 1
-
         return stored
 
     def add_chunks(self, url: str, chunks: list[tuple[int, str]]) -> list[tuple[int, str]]:

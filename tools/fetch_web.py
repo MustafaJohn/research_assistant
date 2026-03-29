@@ -13,6 +13,7 @@ Both sources run in parallel via ThreadPoolExecutor.
 import re
 import time
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 OPENALEX_URL = "https://api.openalex.org/works"
 ARXIV_URL    = "https://export.arxiv.org/api/query"
+MAX_ABSTRACT_CHARS = int(os.getenv("MAX_ABSTRACT_CHARS", "1800"))
 
 _HEADERS = {
     "Accept":     "application/json",
@@ -82,6 +84,7 @@ def _fetch_openalex(query: str, limit: int = 8, sort_by: str = "recent") -> list
         abstract = _reconstruct_abstract(w.get("abstract_inverted_index"))
         if not title or not abstract:
             continue
+        abstract = abstract[:MAX_ABSTRACT_CHARS]
 
         authors = ", ".join(
             a.get("author", {}).get("display_name", "")
@@ -150,6 +153,7 @@ def _fetch_arxiv(query: str, limit: int = 5, sort_by: str = "recent") -> list[di
         abstract = getattr(entry, "summary", "").replace("\n", " ").strip()
         if not title or not abstract or not arxiv_id:
             continue
+        abstract = abstract[:MAX_ABSTRACT_CHARS]
 
         authors   = ", ".join(
             getattr(a, "name", "") for a in getattr(entry, "authors", [])[:3]
@@ -220,6 +224,7 @@ def fetch_papers(
         queries = [topic]
 
     per_query_limit = max(5, max_results // max(len(queries), 1) + 2)
+    max_pool_size = max_results * 3
 
     all_oa, all_arxiv = [], []
 
@@ -236,12 +241,16 @@ def fetch_papers(
         for future in as_completed(oa_futures):
             try:
                 all_oa.extend(future.result())
+                if len(all_oa) > max_pool_size:
+                    all_oa = all_oa[:max_pool_size]
             except Exception as exc:
                 logger.warning("OpenAlex future failed: %s", exc)
 
         for future in as_completed(arxiv_futures):
             try:
                 all_arxiv.extend(future.result())
+                if len(all_arxiv) > max_pool_size:
+                    all_arxiv = all_arxiv[:max_pool_size]
             except Exception as exc:
                 logger.warning("arXiv future failed: %s", exc)
 
