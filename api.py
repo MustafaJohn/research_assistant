@@ -232,11 +232,19 @@ Format with numbered sections. Only reference papers listed above.
 def llm_proxy(req: LLMProxyRequest):
     if not os.environ.get("GEMINI_API_KEY"):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
-    try:
-        from tools.call_llm import call_llm
-        model_map  = {"flash": "gemini-2.5-flash", "pro": "gemini-3.1-pro-preview"}
-        model_name = model_map.get(req.model, "gemini-3.1-pro-preview")
-        text       = call_llm(req.prompt, model=model_name)
+        try:
+          from tools.call_llm import call_llm
+          model_map  = {"flash": "gemini-2.5-flash", "pro": "gemini-3.1-pro-preview"}
+          model_name = model_map.get(req.model, "gemini-3.1-pro-preview")
+          try:
+            text = call_llm(req.prompt, model=model_name)
+          except RuntimeError as e:
+            code = getattr(e, "status_code", None)
+            if code in (429, 500, 503) and model_name != "gemini-2.5-flash":
+                logger.warning("LLM proxy fallback: %s failed with %s, trying gemini-2.5-flash", model_name, code)
+                text = call_llm(req.prompt, model="gemini-2.5-flash")
+            else:
+                raise
         return {"content": [{"type": "text", "text": text}]}
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
