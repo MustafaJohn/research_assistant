@@ -89,6 +89,10 @@ research-agent/
 - `LLM_MODEL`: Gemini model to use (default: gemini-2.5-pro)
 - `HOST`: Server host (default: 0.0.0.0)
 - `PORT`: Server port (default: 8000)
+- `RAG_TOP_K`: Max retrieved chunks included in RAG context (default: 8)
+- `MAX_RAG_CONTEXT_CHARS`: Hard cap for RAG context size sent to summarizer (default: 12000)
+- `MAX_CHUNKS_PER_PAPER`: Max chunks embedded from each paper abstract (default: 4)
+- `MAX_ABSTRACT_CHARS`: Max abstract chars retained from source APIs (default: 1800)
 
 ### Frontend (.env.local)
 - `NEXT_PUBLIC_API_URL`: Backend API URL

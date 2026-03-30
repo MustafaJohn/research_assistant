@@ -1,11 +1,12 @@
 import numpy as np
+import faiss
 from fastembed import TextEmbedding
 
 
 # ─────────────────────────────────────────────────────────────
-# Global singleton — loaded once at startup, shared across all
-# requests. TextEmbedding + ONNX Runtime is stateless and safe
-# to share. ~150MB, loaded once, never reloaded.
+# Global model — loaded once at process startup, shared across
+# all requests. The ONNX model is stateless and thread-safe.
+# Each VectorMemory instance gets its own FAISS index.
 # ─────────────────────────────────────────────────────────────
 _EMBEDDING_MODEL: TextEmbedding | None = None
 _MODEL_NAME = "BAAI/bge-small-en-v1.5"
@@ -20,118 +21,91 @@ def get_model() -> TextEmbedding:
 
 class VectorMemory:
     """
-    Session-scoped vector store using pure numpy cosine similarity.
+    Session-scoped FAISS index.
 
-    Replaces FAISS IndexFlatIP with a plain numpy matrix.
-    Same mathematical result (normalised dot product = cosine similarity)
-    but:
-      - No FAISS binary in memory (~50MB saved)
-      - Index is a numpy array that gets garbage collected after each request
-      - No memory leak between requests
-
-    The embedding model is shared via get_model() singleton — loaded once
-    at startup, never reloaded per request.
+    The embedding model is shared globally (loaded once).
+    Only the index and memory list are per-request — they hold
+    the paper data for a single query and are garbage collected
+    when the request finishes.
     """
 
+    MODEL_NAME = "BAAI/bge-small-en-v1.5"
     DIMENSION = 384
 
     def __init__(self):
-        self.model   = get_model()          # shared singleton — no extra RAM
-        self._vecs:  list[np.ndarray] = []  # list of normalised 1D vectors
-        self.memory: list[dict]       = []  # [{id, url, chunk}]
+        self.model  = get_model()           # shared — no extra RAM
+        self.index  = faiss.IndexFlatIP(self.DIMENSION)
+        self.memory: list[dict] = []
         self.next_id = 0
 
-    # ─────────────────────────────────────────────
-    # Internal
-    # ─────────────────────────────────────────────
-
     def _embed_batch(self, texts: list[str]) -> np.ndarray:
-        """Embed a list of texts in one model inference call. Returns (N, 384)."""
+        """Embed multiple texts in one model inference call."""
         embs = np.array(list(self.model.embed(texts)), dtype="float32")
-        # L2 normalise each row so dot product == cosine similarity
-        norms = np.linalg.norm(embs, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1, norms)   # avoid div-by-zero
-        return embs / norms
+        faiss.normalize_L2(embs)
+        return embs
 
     def _embed_one(self, text: str) -> np.ndarray:
-        """Embed a single text. Returns normalised 1D vector (384,)."""
-        emb = np.array(list(self.model.embed([text])), dtype="float32")[0]
-        norm = np.linalg.norm(emb)
-        return emb / norm if norm > 0 else emb
+        """Embed a single text — used for search queries only."""
+        emb = np.array(list(self.model.embed([text])), dtype="float32")
+        faiss.normalize_L2(emb)
+        return emb
 
-    def _cosine_scores(self, query_vec: np.ndarray) -> np.ndarray:
-        """
-        Dot product between query_vec (384,) and all stored vectors (N, 384).
-        Returns scores array of shape (N,).
-        """
-        if not self._vecs:
-            return np.array([])
-        mat = np.stack(self._vecs)          # (N, 384)
-        return mat @ query_vec              # (N,)
+    def _is_duplicate(self, emb: np.ndarray, threshold: float = 0.92) -> bool:
+        if self.index.ntotal == 0:
+            return False
+        scores, _ = self.index.search(emb, 1)
+        return float(scores[0][0]) > threshold
 
-    # ─────────────────────────────────────────────
-    # Public API
-    # ─────────────────────────────────────────────
-
-    def add_chunks_batch(self, entries: list[tuple[str, int, str]]) -> int:
+    def add_chunks(self, url: str, chunks: list[tuple[int, str]]) -> list[tuple[int, str]]:
         """
-        Batch-embed and store chunks.
-        Duplicate check runs against the pre-existing corpus only,
-        building the matrix once for the whole batch — O(n) not O(n²).
+        Add multiple chunks in one batch embedding call.
+
+        Args:
+            entries: list of (url, chunk_id, chunk_text)
+
+        Returns:
+            Number of chunks actually stored (duplicates skipped)
         """
         if not entries:
             return 0
 
         texts = [e[2] for e in entries]
-        embs  = self._embed_batch(texts)    # one model inference call
-
-        # Build existing corpus matrix once — before processing any new chunk
-        existing_mat = np.stack(self._vecs) if self._vecs else None  # (N, 384) or None
+        embs  = self._embed_batch(texts)
 
         stored = 0
         for (url, _chunk_id, chunk_text), emb in zip(entries, embs):
-            # Check against existing corpus only (not other chunks in this batch)
-            if existing_mat is not None:
-                scores = existing_mat @ emb     # (N,) — no matrix rebuild
-                if scores.max() > 0.92:
-                    continue
-            self._vecs.append(emb)
+            emb_2d = emb.reshape(1, -1)
+            if self._is_duplicate(emb_2d):
+                continue
+            self.index.add(emb_2d)
             self.memory.append({"id": self.next_id, "url": url, "chunk": chunk_text})
+            stored.append((self.next_id, chunk_text))
             self.next_id += 1
-            stored += 1
-
         return stored
 
     def add_chunks(self, url: str, chunks: list[tuple[int, str]]) -> list[tuple[int, str]]:
-        """Single-document add — uses batch embedding internally."""
+        """
+        Single-document add — kept for compatibility.
+        Internally uses batch embedding.
+        """
         entries = [(url, cid, text) for cid, text in chunks]
         self.add_chunks_batch(entries)
         return [(i, t) for _, i, t in entries]
 
     def search(self, query: str, k: int = 10) -> list[dict]:
-        """
-        Return top-k most similar chunks to query.
-        Returns list of {score, url, chunk} sorted descending by score.
-        """
-        if not self._vecs:
+        """Semantic search — returns [{score, url, chunk}]."""
+        if self.index.ntotal == 0:
             return []
-
-        query_vec = self._embed_one(query)
-        scores    = self._cosine_scores(query_vec)     # (N,)
-
-        k_actual  = min(k, len(scores))
-        top_idx   = np.argpartition(scores, -k_actual)[-k_actual:]
-        top_idx   = top_idx[np.argsort(scores[top_idx])[::-1]]  # sort desc
-
-        results = []
-        for idx in top_idx:
+        emb      = self._embed_one(query)
+        k_actual = min(k, self.index.ntotal)
+        scores, ids = self.index.search(emb, k_actual)
+        results  = []
+        for score, idx in zip(scores[0], ids[0]):
+            if idx < 0 or idx >= len(self.memory):
+                continue
             m = self.memory[idx]
-            results.append({
-                "score": float(scores[idx]),
-                "url":   m["url"],
-                "chunk": m["chunk"],
-            })
+            results.append({"score": float(score), "url": m["url"], "chunk": m["chunk"]})
         return results
 
     def size(self) -> int:
-        return len(self._vecs)
+        return self.index.ntotal
