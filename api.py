@@ -2,24 +2,21 @@
 api.py — FastAPI wrapper.
 
 Endpoints:
-  POST /api/fetch      — fetch + RAG pipeline (~10-15s), returns papers
+  POST /api/fetch      — fetch papers only (~10-15s)
   POST /api/summarize  — summarise papers (~20-30s), called in background
   POST /api/llm        — Gemini proxy for frontend
   GET  /api/health
   GET  /               — serves frontend
 
 Split design:
-  /api/fetch runs: researcher → memory (batch embed) → analyst (vector search)
-  Returns papers immediately. Frontend renders them.
-
-  /api/summarize runs: summarizer only on provided papers + RAG context
+  /api/fetch returns papers immediately. Frontend renders them.
+  /api/summarize builds RAG context from provided papers (if not provided)
   Called in background while user browses papers.
 """
 
 import os
 import logging
 import time
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 try:
@@ -36,40 +33,10 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-# ─────────────────────────────────────────────────────────────
-# Startup warmup
-# ─────────────────────────────────────────────────────────────
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("=== Research Agent starting up ===")
-    t0 = time.time()
-
-    # Preload embedding model once — all requests share this singleton
-    try:
-        from memory.vector_memory import get_model
-        model = get_model()
-        list(model.embed(["warmup"]))   # triggers ONNX compilation
-        logger.info("✓ Embedding model loaded (%.1fs)", time.time() - t0)
-    except Exception as e:
-        logger.warning("Embedding warmup failed: %s", e)
-
-    # Warm up Gemini
-    try:
-        from tools.call_llm import call_llm
-        call_llm("Reply with only the word: ready", model="gemini-2.5-flash")
-        logger.info("✓ Gemini warmed up (%.1fs)", time.time() - t0)
-    except Exception as e:
-        logger.warning("Gemini warmup failed: %s", e)
-
-    logger.info("=== Ready in %.1fs ===", time.time() - t0)
-    yield
-    logger.info("=== Shutting down ===")
-
-
-app = FastAPI(title="Mini Research Agent API", version="4.0.0", lifespan=lifespan)
+MAX_RAG_CHARS = int(os.getenv("MAX_RAG_CONTEXT_CHARS", "12000"))
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "8"))
+MAX_CHUNKS_PER_PAPER = int(os.getenv("MAX_CHUNKS_PER_PAPER", "4"))
+app = FastAPI(title="Mini Research Agent API", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -142,9 +109,8 @@ def serve_frontend():
 @app.post("/api/fetch", response_model=FetchResponse)
 def fetch_endpoint(req: FetchRequest):
     """
-    Runs: researcher → memory (batch embed) → analyst (vector search)
-    Returns papers + RAG context immediately (~10-15s).
-    Frontend renders papers. RAG context is passed to /api/summarize.
+    Fetch papers only (fast path).
+    RAG context is built later in /api/summarize from the selected papers.
     """
     if not os.environ.get("GEMINI_API_KEY"):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
@@ -154,12 +120,8 @@ def fetch_endpoint(req: FetchRequest):
 
     try:
         from tools.fetch_web import fetch_papers
-        from memory.vector_memory import VectorMemory
-        from memory.chunker import chunk_text
-        from agents.analyst import analyst_agent
-        from orchestration.state import ResearchState
 
-        # 1. Fetch papers
+        # 1. Fetch papers only
         result = fetch_papers(
             topic       = req.query,
             sub_areas   = req.sub_areas or None,
@@ -168,26 +130,7 @@ def fetch_endpoint(req: FetchRequest):
         )
         papers = [p for p in result["papers"] if _is_valid(p)]
         logger.info("Fetched %d valid papers from %s", len(papers), result["sources_used"])
-
-        # 2. Batch embed all chunks
-        vector_mem  = VectorMemory()
-        all_entries = []
-        for p in papers:
-            text = p.get("abstract") or p.get("text") or ""
-            url  = p.get("url", "")
-            if text.strip():
-                for cid, ctxt in chunk_text(text):
-                    all_entries.append((url, cid, ctxt))
-
-        stored = vector_mem.add_chunks_batch(all_entries)
-        logger.info("Batch embedded %d chunks → %d stored (%.1fs)",
-                    len(all_entries), stored, time.time() - t0)
-
-        # 3. Vector search — near-instant after batch embed
-        hits = vector_mem.search(req.query, k=12)
-        rag_context = "\n\n".join(
-            f"[SOURCE: {h['url']}]\n{h['chunk']}" for h in hits
-        ) if hits else ""
+        rag_context = ""
 
         sources = [
             {
@@ -207,7 +150,7 @@ def fetch_endpoint(req: FetchRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
     elapsed = round(time.time() - t0, 2)
-    logger.info("Fetch complete in %.2fs — %d papers, %d RAG chunks", elapsed, len(papers), len(hits))
+    logger.info("Fetch complete in %.2fs — %d papers", elapsed, len(papers))
 
     return FetchResponse(
         query           = req.query,
@@ -233,8 +176,25 @@ def summarize_endpoint(req: SummarizeRequest):
     try:
         from tools.fetch_web import papers_to_llm_context
         from tools.call_llm import call_llm
+        from memory.vector_memory import VectorMemory
+        from memory.chunker import chunk_text
 
         paper_context = papers_to_llm_context(req.papers, max_abstract_chars=300)
+        rag_context = req.rag_context
+        if not rag_context:
+            vector_mem = VectorMemory()
+            for p in req.papers:
+                text = p.get("abstract") or p.get("text") or ""
+                url = p.get("url", "")
+                if not text.strip():
+                    continue
+                chunks = chunk_text(text)[:MAX_CHUNKS_PER_PAPER]
+                if chunks:
+                    vector_mem.add_chunks(url, chunks)
+            hits = vector_mem.search(req.query, k=RAG_TOP_K)
+            rag_context = "\n\n".join(
+                f"[SOURCE: {h['url']}]\n{h['chunk']}" for h in hits
+            )[:MAX_RAG_CHARS] if hits else ""
 
         prompt = f"""You are a research advisor identifying potential research areas.
 
@@ -244,7 +204,7 @@ Real academic papers retrieved:
 {paper_context}
 
 Relevant context retrieved via semantic search:
-{req.rag_context or '(not available)'}
+{rag_context or '(not available)'}
 
 Based on the above, identify 5-7 distinct research areas or directions.
 For each area:
@@ -276,7 +236,15 @@ def llm_proxy(req: LLMProxyRequest):
         from tools.call_llm import call_llm
         model_map  = {"flash": "gemini-2.5-flash", "pro": "gemini-3.1-pro-preview"}
         model_name = model_map.get(req.model, "gemini-3.1-pro-preview")
-        text       = call_llm(req.prompt, model=model_name)
+        try:
+            text = call_llm(req.prompt, model=model_name)
+        except RuntimeError as e:
+            code = getattr(e, "status_code", None)
+            if code in (429, 500, 503) and model_name != "gemini-2.5-flash":
+                logger.warning("LLM proxy fallback: %s failed with %s, trying gemini-2.5-flash", model_name, code)
+                text = call_llm(req.prompt, model="gemini-2.5-flash")
+            else:
+                raise
         return {"content": [{"type": "text", "text": text}]}
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
