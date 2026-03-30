@@ -111,9 +111,7 @@ def fetch_endpoint(req: FetchRequest):
     """
     Fetch papers only (fast path).
     RAG context is built later in /api/summarize from the selected papers.
-    """
-    Fetch papers only (fast path).
-    RAG context is built later in /api/summarize from the selected papers.
+
     """
     if not os.environ.get("GEMINI_API_KEY"):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
